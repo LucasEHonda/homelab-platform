@@ -5,11 +5,11 @@ test:
 
 NAS_HOST ?=
 PLATFORM_DIR ?= /mnt/svd/platform
-REPOS ?= my-games-hub-br/my-games-hub
+REPOS ?= my-games-hub-br/my-games-hub pinguei-br/pinguei my-personal-finances-br/accounting_administrator
 DEPLOYER_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 # name,repository,app dir,image prefix (the repository id is looked up with gh).
-APPS ?= games,my-games-hub-br/my-games-hub,/mnt/svd/games,ghcr.io/my-games-hub-br/
-GENERATE ?= games:mysql=MYSQL_READONLY_PASSWORD,MYSQL_BREAKGLASS_PASSWORD
+APPS ?= games,my-games-hub-br/my-games-hub,/mnt/svd/games,ghcr.io/my-games-hub-br/ pinguei,pinguei-br/pinguei,/mnt/svd/pinguei,ghcr.io/pinguei-br/ financas,my-personal-finances-br/accounting_administrator,/mnt/svd/financas,ghcr.io/my-personal-finances-br/
+GENERATE ?= games:mysql=MYSQL_READONLY_PASSWORD,MYSQL_BREAKGLASS_PASSWORD pinguei:mysql=MYSQL_READONLY_PASSWORD,MYSQL_BREAKGLASS_PASSWORD financas:db-users=POSTGRES_READONLY_PASSWORD,POSTGRES_BREAKGLASS_PASSWORD
 
 # Installs or updates the platform on the NAS: secrets, Infisical import, deployer. Safe to re-run.
 nas-setup:

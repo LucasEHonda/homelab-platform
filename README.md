@@ -57,7 +57,7 @@ Only steps 1 and 4 need a browser; the rest is scripted.
 
 - add its tag and grants to `tailscale/policy.hujson` and the tailnet policy;
 - add a bind of its app dir (same path on both sides) to the `deployer` service in `deploy/compose.yml`;
-- run `make nas-setup NAS_HOST=user@host APPS="<existing apps> name,owner/repo,/mnt/svd/<app>,ghcr.io/<owner>/"`: a new app gets its Infisical project and identity; existing ones are left alone (if `deploy/apps.yml` already exists on the NAS, add the app entry there by hand first, with `project_id: replace-with-project-id`);
+- run `make nas-setup NAS_HOST=user@host` after adding the app to `APPS` (and its generated keys to `GENERATE`) in the Makefile; it appends the app to `deploy/apps.yml` on the NAS and, because Infisical already exists, asks for a short-lived admin token (Infisical -> Organization -> Access Control -> Identities -> Instance Admin Identity -> Token Auth -> Create token, TTL 1h) to create the app's project and read-only identity;
 - `scripts/github-setup.sh <owner>/<repo>`;
 - in the app: `deploy/deploy.yml`, `deploy/Dockerfile.bundle`, and a `deploy.yml` workflow calling this repo's workflow by SHA (copy my-games-hub).
 

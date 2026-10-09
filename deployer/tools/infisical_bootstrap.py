@@ -95,6 +95,13 @@ class InfisicalAdmin:
     def use_token(self, token: str) -> None:
         self._token = token
 
+    def token_organization_id(self) -> str:
+        data = self._request("GET", "/api/v1/identities/details")
+        try:
+            return data["identityDetails"]["organization"]["id"]
+        except (KeyError, TypeError):
+            raise BootstrapError("could not read the organization of INFISICAL_TOKEN") from None
+
     def create_project(self, name: str) -> str:
         data = self._request("POST", "/api/v1/projects", {"projectName": name})
         try:
@@ -273,9 +280,9 @@ def run(
             return 0
         admin = admin or InfisicalAdmin(args.url)
         admin.wait_ready()
-        if environ.get("INFISICAL_TOKEN") and environ.get("INFISICAL_ORG_ID"):
+        if environ.get("INFISICAL_TOKEN"):
             admin.use_token(environ["INFISICAL_TOKEN"])
-            org_id = environ["INFISICAL_ORG_ID"]
+            org_id = environ.get("INFISICAL_ORG_ID") or admin.token_organization_id()
         else:
             password = environ.get("INFISICAL_ADMIN_PASSWORD")
             if not password:

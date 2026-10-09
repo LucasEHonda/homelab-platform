@@ -20,6 +20,9 @@ class Recorder:
         self.requests = []
         self.fail_projects = fail_projects
         self.project_count = 0
+        self.details = {
+            "identityDetails": {"organization": {"id": "org-x", "name": "homelab", "slug": "homelab"}}
+        }
 
     def handler(self, request):
         body = json.loads(request.content) if request.content else None
@@ -32,6 +35,8 @@ class Recorder:
                 200,
                 json={"identity": {"credentials": {"token": "tok"}}, "organization": {"id": "org1"}},
             )
+        if path == "/api/v1/identities/details":
+            return httpx.Response(200, json=self.details)
         if path == "/api/v1/projects":
             if self.fail_projects:
                 return httpx.Response(400, json={"message": "bad project"})
@@ -215,3 +220,27 @@ def test_project_http_error(tmp_path, capsys):
     )
     assert code == 1
     assert "HTTP 400" in capsys.readouterr().err
+
+
+def test_token_without_org_id_reads_it_from_the_token(tmp_path):
+    recorder = Recorder()
+    code = run(
+        argv(write_apps(tmp_path), tmp_path / "e"),
+        admin=make_admin(recorder),
+        environ={"INFISICAL_TOKEN": "admin-token"},
+    )
+    assert code == 0
+    assert recorder.calls("/api/v1/admin/bootstrap") == []
+    assert recorder.calls("/api/v1/identities")[0]["organizationId"] == "org-x"
+
+
+def test_token_with_malformed_details(tmp_path, capsys):
+    recorder = Recorder()
+    recorder.details = {"identityDetails": {}}
+    code = run(
+        argv(write_apps(tmp_path), tmp_path / "e"),
+        admin=make_admin(recorder),
+        environ={"INFISICAL_TOKEN": "admin-token"},
+    )
+    assert code == 1
+    assert "could not read the organization of INFISICAL_TOKEN" in capsys.readouterr().err

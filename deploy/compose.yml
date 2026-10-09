@@ -20,6 +20,8 @@ services:
       - ./apps.yml:/config/apps.yml:ro
       - ../data/deployer:/data
       - /mnt/svd/games:/mnt/svd/games
+      - /mnt/svd/pinguei:/mnt/svd/pinguei
+      - /mnt/svd/financas:/mnt/svd/financas
     networks: [platform, egress]
     restart: unless-stopped
     logging: *logging

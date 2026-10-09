@@ -157,39 +157,43 @@ else
 fi
 
 # 6. deploy/apps.yml
-if [ ! -f "$P/deploy/apps.yml" ]; then
-  log "writing deploy/apps.yml"
-  python3 - "$admin_email" "$@" <<'PY' | write_file "$P/deploy/apps.yml"
+app_entry() {
+  python3 - "$1" <<'PY'
 import sys
 
-admin, *specs = sys.argv[1:]
-lines = [
-    "infisical_url: http://infisical:8080",
-    "ntfy_url_env: NTFY_URL",
-    "allowed_workflow_refs:",
-    "  - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@",
-    "admins:",
-    "  - " + admin,
-    "apps:",
-]
-for spec in specs:
-    name, repository, app_dir, image_prefix, repository_id = spec.split(",")
-    prefix = name.upper().replace("-", "_")
-    lines += [
-        "  %s:" % name,
-        "    repository: %s" % repository,
-        '    repository_id: "%s"' % repository_id,
-        "    app_dir: %s" % app_dir,
-        "    image_prefixes:",
-        "      - %s" % image_prefix,
-        "    infisical:",
-        "      project_id: replace-with-project-id",
-        "      environment: prod",
-        "      client_id_env: %s_INFISICAL_CLIENT_ID" % prefix,
-        "      client_secret_env: %s_INFISICAL_CLIENT_SECRET" % prefix,
-    ]
-print("\n".join(lines))
+name, repository, app_dir, image_prefix, repository_id = sys.argv[1].split(",")
+prefix = name.upper().replace("-", "_")
+print("\n".join([
+    "  %s:" % name,
+    "    repository: %s" % repository,
+    '    repository_id: "%s"' % repository_id,
+    "    app_dir: %s" % app_dir,
+    "    image_prefixes:",
+    "      - %s" % image_prefix,
+    "    infisical:",
+    "      project_id: replace-with-project-id",
+    "      environment: prod",
+    "      client_id_env: %s_INFISICAL_CLIENT_ID" % prefix,
+    "      client_secret_env: %s_INFISICAL_CLIENT_SECRET" % prefix,
+]))
 PY
+}
+
+if [ ! -f "$P/deploy/apps.yml" ]; then
+  log "writing deploy/apps.yml"
+  {
+    printf 'infisical_url: http://infisical:8080\nntfy_url_env: NTFY_URL\nallowed_workflow_refs:\n'
+    printf '  - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@\nadmins:\n  - %s\napps:\n' "$admin_email"
+    for spec in "$@"; do app_entry "$spec"; done
+  } | write_file "$P/deploy/apps.yml"
+else
+  for spec in "$@"; do
+    name=$(app_name "$spec")
+    if ! grep -q "^  $name:$" "$P/deploy/apps.yml"; then
+      app_entry "$spec" >> "$P/deploy/apps.yml"
+      log "added $name to deploy/apps.yml"
+    fi
+  done
 fi
 
 # 7. Infisical and its Tailscale sidecar
@@ -199,7 +203,15 @@ compose up -d infisical-db infisical-redis infisical secrets-tailscale
 
 # 8. Bootstrap: Infisical admin, projects, app secrets, deployer credentials
 if grep -q replace-with-project-id "$P/deploy/apps.yml"; then
-  ask_required password "Infisical admin password (new account)" secret
+  if grep -q '_INFISICAL_CLIENT_ID=' "$P/.envs/.deployer"; then
+    ask_required infisical_token "Infisical admin token (Infisical -> Organization -> Access Control -> Identities -> Instance Admin Identity -> Token Auth -> Create token, TTL 1h)" secret
+    export INFISICAL_TOKEN="$infisical_token"
+    auth_env="-e INFISICAL_TOKEN"
+  else
+    ask_required password "Infisical admin password (new account)" secret
+    export INFISICAL_ADMIN_PASSWORD="$password"
+    auth_env="-e INFISICAL_ADMIN_PASSWORD"
+  fi
   admin_email=$(python3 -c '
 import re, sys
 match = re.search(r"^admins:\s*\n\s*-\s*(\S+)", open(sys.argv[1]).read(), re.M)
@@ -217,8 +229,8 @@ print(match.group(1) if match else "")
   done
   log "bootstrapping Infisical"
   # shellcheck disable=SC2086
-  INFISICAL_ADMIN_PASSWORD="$password" docker run --rm --network platform_platform \
-    -e INFISICAL_ADMIN_PASSWORD \
+  docker run --rm --network platform_platform \
+    $auth_env \
     -v "$P/deploy/apps.yml:/config/apps.yml" -v "$P/.envs:/envs" $app_mounts \
     --entrypoint python "ghcr.io/lucasehonda/homelab-deployer:$DEPLOYER_VERSION" \
     -m deployer.tools.infisical_bootstrap --url http://infisical:8080 \
