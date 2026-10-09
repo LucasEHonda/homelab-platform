@@ -30,7 +30,7 @@ services:
 
   deployer-tailscale:
     image: tailscale/tailscale:${TAILSCALE_VERSION:-v1.102.4}
-    hostname: deployer
+    # No container hostname: "deployer" must resolve to the deployer service, which serve.json proxies to.
     env_file: ../.envs/.tailscale-deployer
     environment:
       TS_HOSTNAME: deployer
