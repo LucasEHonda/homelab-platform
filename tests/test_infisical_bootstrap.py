@@ -95,6 +95,24 @@ def test_wait_ready():
         InfisicalAdmin("http://x", always, sleep=lambda s: None).wait_ready(10)
 
 
+def test_wait_ready_reports_progress(capsys):
+    state = {"n": 0}
+
+    def handler(request):
+        state["n"] += 1
+        return httpx.Response(503 if state["n"] <= 2 else 200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    InfisicalAdmin("http://x", client, sleep=lambda s: None).wait_ready()
+    out = capsys.readouterr().out
+    assert "waiting for Infisical to finish starting (0s of 900s)" in out
+    assert "Infisical is ready" in out
+
+    ready = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    InfisicalAdmin("http://x", ready, sleep=lambda s: None).wait_ready()
+    assert capsys.readouterr().out == ""
+
+
 def write_apps(tmp_path):
     app_dir = tmp_path / "games"
     env_dir = app_dir / ".envs" / ".production"

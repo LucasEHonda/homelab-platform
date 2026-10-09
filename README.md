@@ -75,6 +75,16 @@ Only steps 1 and 4 need a browser; the rest is scripted.
 - An admin device can unlock it for one hour with `curl -X POST https://deployer.<tailnet>/v1/apps/<app>/break-glass`. This also notifies ntfy.
 - It is locked again after one hour, and on every deployer restart.
 
+## Emergency lockdown
+
+Use it when a GitHub, Tailscale or registry credential may have leaked, or when anything looks odd in a deploy.
+
+`make lockdown NAS_HOST=user@host` cuts the deploy path in three layers that an attacker controlling GitHub or the deployer cannot undo: it stops the deployer and both Tailscale sidecars on the NAS (the apps keep running) and leaves a `LOCKDOWN` marker so `nas-setup` refuses to restart them by accident, then disables the deploy workflow and deletes the Tailscale credential secret in every app repo.
+
+Next, revoke the Tailscale trust credential in the admin console and rotate whatever leaked (see Rotating credentials).
+
+When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables the workflows and asks for a new Tailscale credential through `scripts/github-setup.sh`.
+
 ## Development
 
 - `make test` runs the test suite in Docker.

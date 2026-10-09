@@ -56,16 +56,24 @@ class InfisicalAdmin:
         except ValueError:
             return {}
 
-    def wait_ready(self, timeout_seconds: float = 300) -> None:
+    def wait_ready(self, timeout_seconds: float = 900) -> None:
         attempts = int(timeout_seconds / 5)
-        for attempt in range(attempts):
+        for attempt in range(1, attempts + 1):
             try:
                 response = self._client.get(f"{self._base_url}/api/status")
                 if response.is_success:
+                    if attempt > 1:
+                        print("Infisical is ready", flush=True)
                     return
             except httpx.HTTPError:
                 pass
-            if attempt < attempts - 1:
+            if (attempt - 1) % 6 == 0:
+                elapsed = (attempt - 1) * 5
+                print(
+                    f"waiting for Infisical to finish starting ({elapsed}s of {int(timeout_seconds)}s)",
+                    flush=True,
+                )
+            if attempt < attempts:
                 self._sleep(5)
         raise BootstrapError("infisical did not become ready")
 

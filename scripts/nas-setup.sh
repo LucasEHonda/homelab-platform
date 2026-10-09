@@ -20,6 +20,12 @@ SRC=$(cd "$SRC" && pwd)
 
 log() { echo "==> $*"; }
 warn() { echo "nas-setup: $*" >&2; }
+
+# A lockdown must be lifted on purpose (make unlock), never by a routine setup run.
+if [ -f "$P/LOCKDOWN" ]; then
+  warn "the platform is in lockdown since $(cat "$P/LOCKDOWN"); run make unlock first"
+  exit 1
+fi
 has_midclt() { command -v midclt >/dev/null 2>&1; }
 random_secret() { python3 -c "import secrets; print(secrets.token_urlsafe($1))"; }
 env_value() { sed -n "s/^$1=//p" "$2" | tail -1; }
