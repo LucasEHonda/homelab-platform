@@ -31,8 +31,7 @@ This repository provides automatic, push-triggered deploys of self-hosted apps o
 Only steps 1 and 4 need a browser; the rest is scripted.
 
 1. **Tailscale admin console** (https://login.tailscale.com/admin):
-   - Access controls: merge [`tailscale/policy.hujson`](tailscale/policy.hujson) into the policy file. Remove any
-     allow-all rule (`"src": ["*"], "dst": ["*:*"]`): with it, `tag:ci` could reach every node.
+   - Access controls: merge [`tailscale/policy.hujson`](tailscale/policy.hujson) into the policy file. Make sure no grant lets `*` or `autogroup:member` reach every node; admins reaching `*` is fine (that also covers DBeaver, Infisical and break-glass). Add each app's own `deny` targets to the `tests` block.
    - Settings → Keys: create two auth keys (not reusable, not ephemeral), one tagged `tag:deployer`, one
      `tag:secrets`.
    - Settings → Trust credentials: if workload identity federation is offered, create one for GitHub

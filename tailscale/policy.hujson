@@ -1,19 +1,18 @@
 // Fragment to merge into the tailnet policy file (Tailscale admin -> Access controls).
-// tag:ci nodes are the ephemeral GitHub Actions runners: they may reach only the deployer.
+// Only these additions are needed; keep your existing grants. Do not add broad grants for
+// autogroup:member: apps decide who sees them through their own grants.
 {
   "tagOwners": {
     "tag:ci": ["autogroup:admin"],
     "tag:deployer": ["autogroup:admin"],
-    "tag:secrets": ["autogroup:admin"],
-    "tag:games": ["autogroup:admin"],
-    "tag:pinguei": ["autogroup:admin"],
-    "tag:financas": ["autogroup:admin"]
+    "tag:secrets": ["autogroup:admin"]
   },
   "grants": [
-    { "src": ["autogroup:member"], "dst": ["tag:games", "tag:pinguei", "tag:financas"], "ip": ["tcp:443", "tcp:8443"] },
-    { "src": ["autogroup:admin"], "dst": ["tag:games", "tag:pinguei"], "ip": ["tcp:3306"] },
-    { "src": ["autogroup:admin"], "dst": ["tag:financas"], "ip": ["tcp:5432"] },
-    { "src": ["autogroup:admin"], "dst": ["tag:deployer", "tag:secrets"], "ip": ["tcp:443"] },
+    // Ephemeral GitHub Actions runners: only the deployer's HTTPS endpoint.
     { "src": ["tag:ci"], "dst": ["tag:deployer"], "ip": ["tcp:443"] }
+  ],
+  // Rejects the policy on save if a CI runner could reach anything but the deployer.
+  "tests": [
+    { "src": "tag:ci", "accept": ["tag:deployer:443"], "deny": ["tag:secrets:443"] }
   ]
 }
