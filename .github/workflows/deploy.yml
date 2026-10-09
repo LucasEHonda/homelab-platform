@@ -1,0 +1,97 @@
+name: Deploy
+
+# Reusable workflow called by each app's release workflow, pinned by commit SHA. The runner joins
+# the tailnet as an ephemeral tag:ci node, which the tailnet policy lets reach only the deployer.
+# Inputs reach the script through env, never through ${{ }} inside the script.
+on:
+  workflow_call:
+    inputs:
+      app:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      images:
+        description: JSON object mapping each compose image variable to an image reference pinned by digest.
+        type: string
+        required: true
+      bundle:
+        type: string
+        required: true
+      deployer_url:
+        type: string
+        required: true
+      tailscale_audience:
+        type: string
+        required: false
+        default: ""
+    secrets:
+      TS_OAUTH_CLIENT_ID:
+        required: true
+      TS_OAUTH_SECRET:
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          audience: ${{ inputs.tailscale_audience }}
+          tags: tag:ci
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP: ${{ inputs.app }}
+          VERSION: ${{ inputs.version }}
+          IMAGES: ${{ inputs.images }}
+          BUNDLE: ${{ inputs.bundle }}
+          DEPLOYER_URL: ${{ inputs.deployer_url }}
+        with:
+          script: |
+            const base = process.env.DEPLOYER_URL.replace(/\/$/, '');
+            const call = async (method, path, body) => {
+              const token = await core.getIDToken('homelab-deployer');
+              const response = await fetch(`${base}${path}`, {
+                method,
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: body ? JSON.stringify(body) : undefined,
+              });
+              const data = await response.json().catch(() => ({}));
+              return { status: response.status, data };
+            };
+            const submitted = await call('POST', '/v1/deployments', {
+              app: process.env.APP,
+              version: process.env.VERSION,
+              images: JSON.parse(process.env.IMAGES),
+              bundle: process.env.BUNDLE,
+            });
+            if (submitted.status !== 202) {
+              core.setFailed(`deploy rejected: HTTP ${submitted.status} ${submitted.data.detail ?? ''}`);
+              return;
+            }
+            const deadline = Date.now() + 20 * 60 * 1000;
+            while (Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 10000));
+              const { status, data } = await call('GET', `/v1/deployments/${submitted.data.id}`);
+              if (status !== 200) {
+                core.warning(`status check failed: HTTP ${status}`);
+                continue;
+              }
+              core.info(`${data.app} ${data.version}: ${data.status}`);
+              if (data.status === 'live') {
+                return;
+              }
+              if (['failed', 'rolled_back', 'blocked'].includes(data.status)) {
+                core.setFailed(`${data.status}: ${data.detail}`);
+                return;
+              }
+            }
+            core.setFailed('timed out waiting for the deployment');

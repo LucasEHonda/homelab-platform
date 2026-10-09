@@ -1,0 +1,3 @@
+POSTGRES_USER=infisical
+POSTGRES_PASSWORD=
+POSTGRES_DB=infisical

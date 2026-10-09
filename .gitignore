@@ -1,0 +1,6 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+apps.yml
+.envs/
+deploy/.env

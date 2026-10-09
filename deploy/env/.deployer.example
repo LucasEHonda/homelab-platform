@@ -1,0 +1,5 @@
+# ntfy topic URL, e.g. https://ntfy.sh/<32 random characters>. Anyone who knows it can read the topic.
+NTFY_URL=
+# One Infisical machine identity (Universal Auth) per app, named in apps.yml.
+GAMES_INFISICAL_CLIENT_ID=
+GAMES_INFISICAL_CLIENT_SECRET=

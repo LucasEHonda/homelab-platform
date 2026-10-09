@@ -1,0 +1,19 @@
+// Fragment to merge into the tailnet policy file (Tailscale admin -> Access controls).
+// tag:ci nodes are the ephemeral GitHub Actions runners: they may reach only the deployer.
+{
+  "tagOwners": {
+    "tag:ci": ["autogroup:admin"],
+    "tag:deployer": ["autogroup:admin"],
+    "tag:secrets": ["autogroup:admin"],
+    "tag:games": ["autogroup:admin"],
+    "tag:pinguei": ["autogroup:admin"],
+    "tag:financas": ["autogroup:admin"]
+  },
+  "grants": [
+    { "src": ["autogroup:member"], "dst": ["tag:games", "tag:pinguei", "tag:financas"], "ip": ["tcp:443", "tcp:8443"] },
+    { "src": ["autogroup:admin"], "dst": ["tag:games", "tag:pinguei"], "ip": ["tcp:3306"] },
+    { "src": ["autogroup:admin"], "dst": ["tag:financas"], "ip": ["tcp:5432"] },
+    { "src": ["autogroup:admin"], "dst": ["tag:deployer", "tag:secrets"], "ip": ["tcp:443"] },
+    { "src": ["tag:ci"], "dst": ["tag:deployer"], "ip": ["tcp:443"] }
+  ]
+}

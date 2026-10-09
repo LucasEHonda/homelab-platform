@@ -1,0 +1,8 @@
+services:
+  test:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+    command: ["pytest", "-q"]

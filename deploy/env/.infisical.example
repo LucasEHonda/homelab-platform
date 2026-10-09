@@ -1,0 +1,8 @@
+# openssl rand -hex 16. Losing it makes every stored secret unreadable: keep an offline copy.
+ENCRYPTION_KEY=
+# openssl rand -base64 32
+AUTH_SECRET=
+DB_CONNECTION_URI=postgres://infisical:REPLACE_DB_PASSWORD@infisical-db:5432/infisical
+REDIS_URL=redis://infisical-redis:6379
+SITE_URL=https://secrets.REPLACE_TAILNET
+TELEMETRY_ENABLED=false

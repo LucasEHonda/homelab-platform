@@ -1,0 +1,17 @@
+infisical_url: http://infisical:8080
+ntfy_url_env: NTFY_URL
+allowed_workflow_refs:
+  - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@
+admins:
+  - you@example.com
+apps:
+  games:
+    repository: my-games-hub-br/my-games-hub
+    repository_id: "000000000"
+    app_dir: /mnt/svd/games
+    image_prefixes: [ghcr.io/my-games-hub-br/]
+    infisical:
+      project_id: replace-with-project-id
+      environment: prod
+      client_id_env: GAMES_INFISICAL_CLIENT_ID
+      client_secret_env: GAMES_INFISICAL_CLIENT_SECRET
