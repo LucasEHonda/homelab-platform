@@ -1,4 +1,4 @@
-FROM docker:27.3.1-cli AS docker-cli
+FROM docker:29.8.1-cli AS docker-cli
 
 FROM python:3.12.7-slim AS base
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
