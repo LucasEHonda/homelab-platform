@@ -89,7 +89,7 @@ def test_extract_bundle_dest_exists(tmp_path):
 def test_compose_config_parses_json_and_rejects_invalid():
     runner = FakeRunner([CommandResult(0, '{"services": {}}', "")])
     assert Docker(runner).compose_config(TARGET) == {"services": {}}
-    assert runner.calls == [COMPOSE + ["config", "--format", "json", "--no-env-resolution"]]
+    assert runner.calls == [COMPOSE + ["config", "--format", "json"]]
     bad = FakeRunner([CommandResult(0, "not json", "")])
     with pytest.raises(DockerError):
         Docker(bad).compose_config(TARGET)

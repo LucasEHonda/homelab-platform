@@ -297,6 +297,7 @@ class DeploymentService:
             health_image = rendered["services"][manifest.health_service]["image"]
             deadline = self._clock() + manifest.health_timeout_seconds
             migrate_failed = False
+            up_failed = False
             while True:
                 m = self._docker.inspect(
                     f"{manifest.project}-{manifest.migrate_service}-1",
@@ -319,7 +320,8 @@ class DeploymentService:
                 if h == f"{health_image} healthy":
                     break
                 if up_error is not None:
-                    raise _Failed(up_error)
+                    up_failed = True
+                    break
                 if self._clock() >= deadline:
                     raise _Failed(
                         f"{manifest.health_service} did not become healthy "
@@ -327,18 +329,21 @@ class DeploymentService:
                     )
                 self._sleep(self._poll_seconds)
 
-            if migrate_failed:
+            if migrate_failed or up_failed:
                 if previous is None:
-                    raise _Failed("migrations failed")
+                    raise _Failed(up_error if up_failed else "migrations failed")
+                reason = "compose up failed" if up_failed else "migrations failed"
                 self._point(app_dir, deploy_link, previous)
                 try:
                     self._docker.compose_up(live)
-                    detail = f"migrations failed; back on {Path(previous).name}"
+                    detail = f"{reason}; back on {Path(previous).name}"
                 except DockerError:
-                    detail = (
-                        f"migrations failed; rollback to {Path(previous).name} failed"
-                    )
-                deployment.status = DeploymentStatus.ROLLED_BACK
+                    detail = f"{reason}; rollback to {Path(previous).name} failed"
+                deployment.status = (
+                    DeploymentStatus.FAILED
+                    if up_failed
+                    else DeploymentStatus.ROLLED_BACK
+                )
                 deployment.detail = detail
             else:
                 deployment.status = DeploymentStatus.LIVE

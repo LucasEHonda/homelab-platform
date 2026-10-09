@@ -1,4 +1,6 @@
-FROM docker:29.8.1-cli AS docker-cli
+# Same Docker/Compose generation as the NAS engine (Docker 27.5, Compose v2.32): newer Compose
+# clients misread its network info. Bump only together with TrueNAS.
+FROM docker:27.5.0-cli AS docker-cli
 
 FROM python:3.12.7-slim AS base
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker

@@ -264,6 +264,30 @@ def test_compose_up_error_with_migrate_failure_rolls_back(env: Env) -> None:
     assert env.docker.up_calls == 3
 
 
+def test_compose_up_error_rolls_back_to_previous(env: Env) -> None:
+    first = env.deploy("v1.0.0")
+    env.docker.inspect_fn = never_healthy
+    env.docker.fail_up_on = {2}
+    second = env.deploy("v1.1.0")
+    assert second.status == "failed"
+    assert second.detail.startswith("compose up failed; back on v1.0.0-")
+    assert os.readlink(env.link) == f".releases/v1.0.0-{first.id[:8]}"
+    assert env.docker.up_calls == 3
+
+
+def test_compose_up_error_on_first_deploy_fails(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(target: Any) -> None:
+        raise DockerError("boom")
+
+    monkeypatch.setattr(env.docker, "compose_up", boom)
+    env.docker.inspect_fn = never_healthy
+    deployment = env.deploy()
+    assert deployment.status == "failed"
+    assert deployment.detail.startswith("compose up failed; rollback to legacy-")
+
+
 def test_health_timeout_fails_and_keeps_link(env: Env) -> None:
     env.docker.inspect_fn = never_healthy
     deployment = env.deploy()

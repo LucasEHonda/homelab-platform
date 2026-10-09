@@ -88,7 +88,7 @@ class Docker:
     def compose_config(self, target: ComposeTarget) -> dict:
         result = self._check(
             self._compose(target)
-            + ["config", "--format", "json", "--no-env-resolution"]
+            + ["config", "--format", "json"]
         )
         try:
             return json.loads(result.stdout)
