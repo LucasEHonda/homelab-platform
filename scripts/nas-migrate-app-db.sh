@@ -31,7 +31,8 @@ esac
 log() { echo "==> $*"; }
 warn() { echo "nas-migrate-app-db: $*" >&2; }
 die() { warn "$*"; exit 1; }
-env_value() { sed -n "s/^$1=//p" "$2" | tail -1; }
+# The deployer writes KEY='value'; files written by these scripts have no quotes.
+env_value() { sed -n "s/^$1=//p" "$2" | tail -1 | sed "s/^'\(.*\)'\$/\1/"; }
 marked() { [ -f "$M/$1" ]; }
 mark() { date -u +%Y-%m-%dT%H:%M:%SZ > "$M/$1"; }
 
