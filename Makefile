@@ -1,4 +1,4 @@
-.PHONY: test nas-setup lockdown unlock
+.PHONY: test nas-setup lockdown unlock nas-stats
 
 test:
 	docker compose -f compose.dev.yml run --rm --build test
@@ -39,3 +39,9 @@ unlock:
 	ssh -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) off; rm -f /tmp/nas-lockdown.sh"
 	for repo in $(REPOS); do gh workflow enable deploy.yml --repo "$$repo"; done
 	scripts/github-setup.sh $(REPOS)
+
+# Read-only snapshot of memory and CPU per container, plus Redis and database memory. Changes nothing.
+nas-stats:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	ssh $(NAS_HOST) "cat > /tmp/nas-stats.sh" < scripts/nas-stats.sh
+	ssh -t $(NAS_HOST) "sudo sh /tmp/nas-stats.sh; rm -f /tmp/nas-stats.sh"
