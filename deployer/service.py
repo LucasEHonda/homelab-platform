@@ -253,7 +253,9 @@ class DeploymentService:
                 release_dir / ".env",
             )
             rendered = self._docker.compose_config(staged)
-            violations = check_compose(rendered, app_dir, app.image_prefixes)
+            violations = check_compose(
+                rendered, app_dir, app.image_prefixes, self._config.shared_networks
+            )
             if violations:
                 raise _Blocked("; ".join(violations))
 
@@ -262,7 +264,14 @@ class DeploymentService:
                 if service_name not in services:
                     raise _Blocked(f"service {service_name} is not in {manifest.compose}")
 
-            if manifest.backup is not None:
+            if manifest.backup is not None and manifest.backup.shared:
+                result = self._docker.exec(
+                    "platform-data-backup-1",
+                    ["sh", "/usr/local/bin/pg-backup.sh", "now", request.app],
+                )
+                if result.returncode != 0:
+                    raise _Failed("database backup failed")
+            elif manifest.backup is not None:
                 container = f"{manifest.project}-{manifest.backup.service}-1"
                 if self._docker.inspect(container, "{{.State.Running}}") == "true":
                     result = self._docker.exec(container, manifest.backup.command)

@@ -109,7 +109,77 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  data-postgres:
+    image: postgres:16
+    user: "568:568"
+    env_file: ../.envs/.data-postgres
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=200"]
+    volumes:
+      - ../data/data-postgres:/var/lib/postgresql/data
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  data-redis:
+    image: redis:7.4-alpine
+    user: "568:568"
+    # noeviction because the apps' Celery queues live here and must never be evicted.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--aclfile", "/data/users.acl"]
+    volumes:
+      - ../data/data-redis:/data
+    env_file: ../.envs/.data-redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning --user platform --pass \"$$REDIS_ADMIN_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+
+  data-backup:
+    image: postgres:16
+    user: "568:568"
+    env_file: ../.envs/.data-postgres
+    environment:
+      PGHOST: data-postgres
+      BACKUP_AT: "${BACKUP_AT:-03:30}"
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-14}"
+      BACKUP_DATABASES: "games pinguei financas"
+      TZ: America/Sao_Paulo
+    entrypoint: ["sh", "/usr/local/bin/pg-backup.sh"]
+    volumes:
+      - ./backup/pg-backup.sh:/usr/local/bin/pg-backup.sh:ro
+      - /mnt/svd/games/backups:/backups/games
+      - /mnt/svd/pinguei/backups:/backups/pinguei
+      - /mnt/svd/financas/backups:/backups/financas
+    depends_on:
+      data-postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: unless-stopped
+    logging: *logging
+
 networks:
   platform:
+    internal: true
+  data:
+    name: platform-data
     internal: true
   egress: {}

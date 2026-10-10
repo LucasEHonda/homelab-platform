@@ -76,8 +76,9 @@ app_name() { echo "${1%%,*}"; }
 log "folders in $P"
 create_dataset
 mkdir -p "$P/deploy" "$P/.envs" "$P/data/deployer" "$P/data/infisical-db" \
-  "$P/data/tailscale-deployer" "$P/data/tailscale-secrets"
-chown 568:568 "$P/data/infisical-db"
+  "$P/data/tailscale-deployer" "$P/data/tailscale-secrets" \
+  "$P/data/data-postgres" "$P/data/data-redis"
+chown 568:568 "$P/data/infisical-db" "$P/data/data-postgres" "$P/data/data-redis"
 chmod 700 "$P/.envs"
 
 # 2. Deploy files (apps.yml and .env are owned by the server)
@@ -144,6 +145,25 @@ import base64, json, os
 auth = base64.b64encode("{}:{}".format(os.environ["GHCR_USER"], os.environ["GHCR_TOKEN"]).encode()).decode()
 print(json.dumps({"auths": {"ghcr.io": {"auth": auth}}}))
 ' | write_file "$envs/docker-config.json"
+fi
+
+if [ ! -f "$envs/.data-postgres" ]; then
+  log "writing .envs/.data-postgres"
+  printf 'POSTGRES_USER=platform\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=postgres\n' "$(random_secret 32)" \
+    | write_file "$envs/.data-postgres"
+fi
+if [ ! -f "$envs/.data-redis" ]; then
+  log "writing .envs/.data-redis"
+  printf 'REDIS_ADMIN_PASSWORD=%s\n' "$(random_secret 32)" | write_file "$envs/.data-redis"
+fi
+# App ACL lines are appended by the provisioning script; this file only seeds the admin user.
+if [ ! -f "$P/data/data-redis/users.acl" ]; then
+  log "writing data/data-redis/users.acl"
+  admin_hash=$(env_value REDIS_ADMIN_PASSWORD "$envs/.data-redis" \
+    | python3 -c "import hashlib, sys; print(hashlib.sha256(sys.stdin.read().strip().encode()).hexdigest())")
+  printf 'user default off\nuser platform on #%s ~* &* +@all\n' "$admin_hash" \
+    | write_file "$P/data/data-redis/users.acl"
+  chown 568:568 "$P/data/data-redis/users.acl"
 fi
 
 # 5. deploy/.env

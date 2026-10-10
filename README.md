@@ -88,3 +88,7 @@ When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables t
 ## Development
 
 - `make test` runs the test suite in Docker.
+
+## Shared data services
+
+Apps move from their own database containers to a shared Postgres and Redis. The operator sequence, the per-app migration steps and the rollback are in [`docs/shared-data-runbook.md`](docs/shared-data-runbook.md).

@@ -31,14 +31,16 @@ class ManifestError(Exception):
 
 @dataclass(frozen=True)
 class BackupStep:
-    service: str
-    command: tuple[str, ...]
+    service: str = ""
+    command: tuple[str, ...] = ()
+    shared: bool = False
 
 
 @dataclass(frozen=True)
 class DatabaseSpec:
     engine: Literal["mysql", "postgres"]
     service: str
+    shared: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,12 +62,17 @@ def _matching_str(value: object, pattern: re.Pattern[str], path: str) -> str:
     return value
 
 
-def _exact_keys(data: Mapping[object, object], keys: tuple[str, ...], path: str) -> None:
+def _exact_keys(
+    data: Mapping[object, object],
+    keys: tuple[str, ...],
+    path: str,
+    optional: tuple[str, ...] = (),
+) -> None:
     for key in keys:
         if key not in data:
             raise ManifestError(f"{path}.{key}: is required")
     for key in data:
-        if key not in keys:
+        if key not in keys and key not in optional:
             raise ManifestError(f"{path}.{key}: unknown key")
 
 
@@ -99,6 +106,10 @@ def _parse_env_files(value: object) -> dict[str, str]:
 def _parse_backup(value: object) -> BackupStep:
     if not isinstance(value, dict):
         raise ManifestError("backup: must be a mapping")
+    if "shared" in value:
+        if value != {"shared": True}:
+            raise ManifestError("backup: shared form must be exactly {shared: true}")
+        return BackupStep(shared=True)
     _exact_keys(value, ("service", "command"), "backup")
     service = value["service"]
     if not isinstance(service, str) or not service:
@@ -122,7 +133,7 @@ def _parse_timeout(value: object) -> int:
 def _parse_database(value: object) -> DatabaseSpec:
     if not isinstance(value, dict):
         raise ManifestError("database: must be a mapping")
-    _exact_keys(value, ("engine", "service"), "database")
+    _exact_keys(value, ("engine", "service"), "database", optional=("shared",))
     engine = value["engine"]
     if engine == "mysql":
         spec_engine: Literal["mysql", "postgres"] = "mysql"
@@ -131,7 +142,12 @@ def _parse_database(value: object) -> DatabaseSpec:
     else:
         raise ManifestError("database.engine: must be mysql or postgres")
     service = _matching_str(value["service"], _SERVICE_NAME, "database.service")
-    return DatabaseSpec(engine=spec_engine, service=service)
+    shared = value.get("shared", False)
+    if not isinstance(shared, bool):
+        raise ManifestError("database.shared: must be a boolean")
+    if shared and spec_engine != "postgres":
+        raise ManifestError("database.shared: only postgres")
+    return DatabaseSpec(engine=spec_engine, service=service, shared=shared)
 
 
 def parse_manifest(data: object) -> Manifest:

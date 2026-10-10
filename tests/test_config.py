@@ -169,3 +169,21 @@ def test_load_config_invalid_yaml(tmp_path: Path) -> None:
     path.write_text("a: [b")
     with pytest.raises(ConfigError, match="invalid YAML"):
         load_config(path)
+
+
+# FAILS IF: shared_networks default not empty; shared_networks value dropped; non-list shared_networks accepted
+def test_shared_networks_defaults_to_empty() -> None:
+    assert parse_config(_valid()).shared_networks == ()
+
+
+def test_shared_networks_are_parsed() -> None:
+    data = _valid()
+    data["shared_networks"] = ["platform-data"]
+    assert parse_config(data).shared_networks == ("platform-data",)
+
+
+def test_shared_networks_must_be_list_of_strings() -> None:
+    data = _valid()
+    data["shared_networks"] = "platform-data"
+    with pytest.raises(ConfigError, match="shared_networks"):
+        parse_config(data)
