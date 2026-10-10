@@ -92,7 +92,7 @@ stop_app() {
 # psql_new <database>: runs the SQL on stdin on the shared Postgres as the platform admin.
 psql_new() { docker exec -i "$PG" psql -X -q -At -F '|' -v ON_ERROR_STOP=1 -U platform -d "$1"; }
 psql_old() { docker exec -i "$OLD_CT" psql -X -q -At -F '|' -v ON_ERROR_STOP=1 -U "$OLD_USER" -d "$OLD_DB"; }
-mysql_q() { docker exec -e MYSQL_PWD "$MYSQL_CT" mysql -uroot -N -B "$@"; }
+mysql_q() { docker exec -e MYSQL_PWD "$MYSQL_CT" mysql -uroot -N -B "$MYSQL_DATABASE" "$@"; }
 
 new_tables() {
   echo "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1" | psql_new "$APP"
@@ -107,16 +107,19 @@ check_names() {
   done
 }
 
-# Points MYSQL_CT at a reachable old MySQL: the old container while it exists, else a temporary one on its data dir.
+# Points MYSQL_CT at a temporary MySQL on the old data dir. pgloader cannot log in with MySQL 8's
+# default caching_sha2_password, so this server runs with the native plugin and root is switched to it.
+# The old container is only stopped, never removed: starting it again is the rollback.
 ensure_mysql() {
+  [ "$MYSQL_CT" = "$TEMP_MYSQL" ] && return 0
   if [ -n "$(docker ps -q -f "name=^$MYSQL_CT\$")" ]; then
-    docker network connect platform-data "$MYSQL_CT" >/dev/null 2>&1 || true
-    return 0
+    log "stopping $MYSQL_CT so a temporary MySQL can open its data dir"
+    docker stop "$MYSQL_CT" >/dev/null || die "could not stop $MYSQL_CT"
   fi
   log "starting temporary MySQL $TEMP_MYSQL on $A/data/mysql"
   docker rm -f "$TEMP_MYSQL" >/dev/null 2>&1 || true
   docker run -d --name "$TEMP_MYSQL" --network platform-data --user 568:568 \
-    -v "$A/data/mysql:/var/lib/mysql" mysql:8.0 >/dev/null
+    -v "$A/data/mysql:/var/lib/mysql" mysql:8.0 --default-authentication-plugin=mysql_native_password >/dev/null
   MYSQL_CT=$TEMP_MYSQL
   trap remove_temp_mysql EXIT
   tries=0
@@ -125,6 +128,10 @@ ensure_mysql() {
     [ "$tries" -le 60 ] || die "temporary MySQL did not become ready"
     sleep 2
   done
+  # The password goes through stdin, not the command line.
+  quoted=$(printf '%s' "$MYSQL_PWD" | sed "s/'/''/g")
+  printf "ALTER USER IF EXISTS 'root'@'%%' IDENTIFIED WITH mysql_native_password BY '%s';\nALTER USER IF EXISTS 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '%s';\n" "$quoted" "$quoted" \
+    | docker exec -i -e MYSQL_PWD "$MYSQL_CT" mysql -uroot >/dev/null || die "could not switch root to mysql_native_password"
 }
 
 remove_temp_mysql() { docker rm -f "$TEMP_MYSQL" >/dev/null 2>&1 || true; }
@@ -254,8 +261,7 @@ step_prepare() {
     [ -n "$(docker ps -q -f "name=^$MYSQL_CT\$")" ] || die "$MYSQL_CT is not running; the old database is needed for the dump"
     dump="$A/backups/pre-migration-$stamp.sql.gz"
     log "dumping the old database to $dump"
-    (umask 077; docker exec -e MYSQL_PWD "$MYSQL_CT" mysqldump -uroot --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE" > "$dump.tmp") || die "mysqldump failed"
-    gzip -c "$dump.tmp" > "$dump"
+    (umask 077; docker exec -e MYSQL_PWD "$MYSQL_CT" mysqldump -uroot --single-transaction --routines --triggers --no-tablespaces "$MYSQL_DATABASE" > "$dump.tmp" && gzip -c "$dump.tmp" > "$dump") || die "mysqldump failed"
     rm -f "$dump.tmp"
   fi
 
@@ -319,13 +325,15 @@ LOAD DATABASE
   INTO postgresql://platform:$new_password@data-postgres/$APP
 WITH data only, truncate, disable triggers, reset sequences, prefetch rows = 1000
 SET PostgreSQL PARAMETERS session_replication_role = 'replica'
-CAST type tinyint to boolean drop typemod when (= 1 precision)
-EXCLUDING TABLE NAMES MATCHING 'django_migrations';
+CAST type tinyint when (= 1 precision) to boolean drop typemod
+EXCLUDING TABLE NAMES MATCHING 'django_migrations'
+ALTER SCHEMA '$MYSQL_DATABASE' RENAME TO 'public';
 LOAD
   )
   log "loading the data with pgloader"
   loaded=0
-  docker run --rm --network platform-data -v "$load_file:/load.load:ro" dimitri/pgloader:v3.6.9 pgloader /load.load && loaded=1
+  # v3.6.7 by digest; Docker Hub has no v3.6.9 tag.
+  docker run --rm --network platform-data -v "$load_file:/load.load:ro" dimitri/pgloader@sha256:d29ea680cf1aaaf7269690a922dd69167567b91b35e9c48a0b54a99cef96c0ed pgloader /load.load && loaded=1
   rm -f "$load_file"
   [ "$loaded" -eq 1 ] || die "pgloader failed; the app stays stopped"
 
