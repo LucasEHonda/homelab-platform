@@ -154,9 +154,10 @@ stats_new_keys() {
   echo "SELECT count(*), coalesce(md5(string_agg(k, ',' ORDER BY k COLLATE \"C\")), '') FROM (SELECT concat_ws('|', $list) AS k FROM \"$1\") AS x" | psql_new "$APP"
 }
 
-# Whole-row content hash; COLLATE "C" keeps the row order identical in both databases.
+# Whole-row content hash; COLLATE "C" keeps the row order identical in both databases,
+# and UTC keeps timestamptz text identical when the two servers use different timezones.
 row_stats_sql() {
-  echo "SELECT count(*), coalesce(md5(string_agg(r::text, ',' ORDER BY r::text COLLATE \"C\")), '') FROM \"$1\" AS r"
+  echo "SET TimeZone TO 'UTC'; SELECT count(*), coalesce(md5(string_agg(r::text, ',' ORDER BY r::text COLLATE \"C\")), '') FROM \"$1\" AS r"
 }
 
 # verify_all: prints a comparison table and returns 1 on any difference.
