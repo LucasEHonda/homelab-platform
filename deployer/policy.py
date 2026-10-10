@@ -24,7 +24,12 @@ def _inside(path: str, app_dir: Path) -> bool:
     return p.is_absolute() and (p == app_dir or app_dir in p.parents)
 
 
-def check_compose(config: Mapping[str, Any], app_dir: Path, image_prefixes: Sequence[str]) -> list[str]:
+def check_compose(
+    config: Mapping[str, Any],
+    app_dir: Path,
+    image_prefixes: Sequence[str],
+    shared_networks: Sequence[str] = (),
+) -> list[str]:
     violations: list[str] = []
     services = config.get("services") or {}
     for name in sorted(services):
@@ -55,6 +60,13 @@ def check_compose(config: Mapping[str, Any], app_dir: Path, image_prefixes: Sequ
         image = service.get("image", "")
         if image.startswith(tuple(image_prefixes)) and DIGEST_SUFFIX.search(image) is None:
             violations.append(f"service {name}: image {image} must be pinned by digest")
+    networks = config.get("networks") or {}
+    for key in sorted(networks):
+        network = networks[key] or {}
+        if network.get("external"):
+            effective = network.get("name") or key
+            if effective not in shared_networks:
+                violations.append(f"network {key}: external network {effective} is not allowed")
     volumes = config.get("volumes") or {}
     for vname in sorted(volumes):
         vol = volumes[vname] or {}

@@ -456,3 +456,25 @@ def test_infisical_source_fetches(env: Env) -> None:
         ("login", "id", "sec"),
         ("list", "tok", "proj", "prod", "/django"),
     ]
+
+
+# FAILS IF: shared backup runs compose run in the app project; failure does not fail the deploy like today's backup failure
+def test_shared_backup_execs_in_platform_container(env: Env) -> None:
+    env.docker.manifest = {**MANIFEST, "backup": {"shared": True}}
+    deployment = env.deploy()
+    assert deployment.status == "live"
+    assert env.docker.exec_calls == [
+        (
+            "platform-data-backup-1",
+            ("sh", "/usr/local/bin/pg-backup.sh", "now", "games"),
+        )
+    ]
+
+
+def test_shared_backup_failure_fails_without_switch(env: Env) -> None:
+    env.docker.manifest = {**MANIFEST, "backup": {"shared": True}}
+    env.docker.exec_result = CommandResult(1, "", "boom")
+    deployment = env.deploy()
+    assert deployment.status == "failed"
+    assert deployment.detail == "database backup failed"
+    assert not env.link.is_symlink()

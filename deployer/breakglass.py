@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -15,6 +16,10 @@ _MYSQL = (
     "\"ALTER USER 'breakglass'@'%' ACCOUNT {action}\""
 )
 _PSQL = 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "{statement}"'
+
+
+_SHARED_CONTAINER = "platform-data-postgres-1"
+_ROLE_APP = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class BreakGlassError(Exception):
@@ -55,7 +60,15 @@ class BreakGlassService:
             raise BreakGlassError(f"{app_name} has no deployed release")
         if manifest.database is None:
             raise BreakGlassError(f"{app_name} has no database")
+        if manifest.database.shared:
+            if not _ROLE_APP.match(app_name):
+                raise BreakGlassError(f"{app_name}: unsafe name for a shared database role")
+            return _SHARED_CONTAINER, manifest.database
         return f"{manifest.project}-{manifest.database.service}-1", manifest.database
+
+    @staticmethod
+    def _role(app_name: str, db: DatabaseSpec) -> str:
+        return f"{app_name}_breakglass" if db.shared else "breakglass"
 
     def open(self, app_name: str, user: str) -> datetime:
         container, db = self._target(app_name)
@@ -63,7 +76,7 @@ class BreakGlassService:
         if db.engine == "mysql":
             command = ["sh", "-c", _MYSQL.format(action="UNLOCK")]
         else:
-            statement = f"ALTER ROLE breakglass LOGIN VALID UNTIL '{expires.isoformat()}'"
+            statement = f"ALTER ROLE {self._role(app_name, db)} LOGIN VALID UNTIL '{expires.isoformat()}'"
             command = ["sh", "-c", _PSQL.format(statement=statement)]
         result = self._docker.exec(container, command)
         if result.returncode != 0:
@@ -84,7 +97,7 @@ class BreakGlassService:
         if db.engine == "mysql":
             command = ["sh", "-c", _MYSQL.format(action="LOCK")]
         else:
-            command = ["sh", "-c", _PSQL.format(statement="ALTER ROLE breakglass NOLOGIN")]
+            command = ["sh", "-c", _PSQL.format(statement=f"ALTER ROLE {self._role(app_name, db)} NOLOGIN")]
         result = self._docker.exec(container, command)
         if result.returncode != 0:
             logger.error("break-glass lock failed for %s", app_name)

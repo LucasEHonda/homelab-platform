@@ -1,4 +1,4 @@
-.PHONY: test nas-setup lockdown unlock nas-stats
+.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-migrate
 
 test:
 	docker compose -f compose.dev.yml run --rm --build test
@@ -45,3 +45,18 @@ nas-stats:
 	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
 	ssh $(NAS_HOST) "cat > /tmp/nas-stats.sh" < scripts/nas-stats.sh
 	ssh -t $(NAS_HOST) "sudo sh /tmp/nas-stats.sh; rm -f /tmp/nas-stats.sh"
+
+# Creates one app's database, roles, credentials and Redis user on the shared data services. Safe to re-run.
+nas-provision:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	$(if $(APP),,$(error set APP=games|pinguei|financas))
+	ssh $(NAS_HOST) "cat > /tmp/nas-provision-app-data.sh" < scripts/nas-provision-app-data.sh
+	ssh -t $(NAS_HOST) "sudo PLATFORM_DIR=$(PLATFORM_DIR) sh /tmp/nas-provision-app-data.sh $(APP); rm -f /tmp/nas-provision-app-data.sh"
+
+# One step of an app's move to the shared database: prepare, load, verify or finish (see docs/shared-data-runbook.md).
+nas-migrate:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	$(if $(APP),,$(error set APP=games|pinguei|financas))
+	$(if $(STEP),,$(error set STEP=prepare|load|verify|finish))
+	ssh $(NAS_HOST) "cat > /tmp/nas-migrate-app-db.sh" < scripts/nas-migrate-app-db.sh
+	ssh -t $(NAS_HOST) "sudo PLATFORM_DIR=$(PLATFORM_DIR) sh /tmp/nas-migrate-app-db.sh $(APP) $(STEP); rm -f /tmp/nas-migrate-app-db.sh"

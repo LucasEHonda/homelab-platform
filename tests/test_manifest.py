@@ -151,3 +151,49 @@ def test_read_template_keys_invalid_line(tmp_path: Path) -> None:
     path.write_text("NOPE\n")
     with pytest.raises(ManifestError, match="invalid line 'NOPE'"):
         read_template_keys(path)
+
+
+# FAILS IF: shared mysql accepted; shared flag dropped; backup shared form rejected; backup shared with extra keys accepted; old manifests break
+def test_shared_postgres_database_and_backup_parse() -> None:
+    data = _valid()
+    data["database"] = {"engine": "postgres", "service": "data-postgres", "shared": True}
+    data["backup"] = {"shared": True}
+    manifest = parse_manifest(data)
+    assert manifest.database == DatabaseSpec("postgres", "data-postgres", shared=True)
+    assert manifest.backup == BackupStep(shared=True)
+
+
+def test_database_shared_defaults_to_false() -> None:
+    assert parse_manifest(_valid()).database == DatabaseSpec("mysql", "mysql")
+    assert parse_manifest(_valid()).backup.shared is False
+
+
+def test_shared_mysql_is_rejected() -> None:
+    data = _valid()
+    data["database"]["shared"] = True
+    with pytest.raises(ManifestError, match="database.shared: only postgres"):
+        parse_manifest(data)
+
+
+def test_database_shared_must_be_bool() -> None:
+    data = _valid()
+    data["database"] = {"engine": "postgres", "service": "p", "shared": "yes"}
+    with pytest.raises(ManifestError, match="database.shared"):
+        parse_manifest(data)
+
+
+@pytest.mark.parametrize(
+    "backup",
+    [
+        {"shared": True, "service": "backup"},
+        {"shared": True, "command": ["x"]},
+        {"shared": False},
+        {"shared": "yes"},
+        {"service": "backup"},
+    ],
+)
+def test_invalid_backup_forms_are_rejected(backup: dict[str, Any]) -> None:
+    data = _valid()
+    data["backup"] = backup
+    with pytest.raises(ManifestError, match="backup"):
+        parse_manifest(data)

@@ -167,3 +167,36 @@ def test_validate_image_ref_rejects_uppercase():
 def test_validate_image_ref_rejects_other_registry():
     with pytest.raises(PolicyError, match="outside the allowed registries"):
         validate_image_ref(f"ghcr.io/other/x@{DIGEST}", PREFIXES)
+
+
+# FAILS IF: unknown external network passes; external network named via name: bypasses the check; allowed network rejected; internal networks rejected
+def test_unknown_external_network_is_rejected():
+    config = {"networks": {"data": {"external": True, "name": "other"}}}
+    assert check_compose(config, APP_DIR, PREFIXES, ("platform-data",)) == [
+        "network data: external network other is not allowed"
+    ]
+
+
+def test_external_network_without_name_uses_key():
+    config = {"networks": {"platform-data": {"external": True}}}
+    assert check_compose(config, APP_DIR, PREFIXES, ("platform-data",)) == []
+    assert check_compose(config, APP_DIR, PREFIXES) == [
+        "network platform-data: external network platform-data is not allowed"
+    ]
+
+
+def test_name_not_key_decides_allowed_network():
+    config = {"networks": {"platform-data": {"external": True, "name": "host"}}}
+    assert check_compose(config, APP_DIR, PREFIXES, ("platform-data",)) == [
+        "network platform-data: external network host is not allowed"
+    ]
+
+
+def test_allowed_external_network_via_name_passes():
+    config = {"networks": {"data": {"external": True, "name": "platform-data"}}}
+    assert check_compose(config, APP_DIR, PREFIXES, ("platform-data",)) == []
+
+
+def test_internal_networks_are_not_checked():
+    config = {"networks": {"default": {}, "back": None, "x": {"name": "whatever"}}}
+    assert check_compose(config, APP_DIR, PREFIXES) == []

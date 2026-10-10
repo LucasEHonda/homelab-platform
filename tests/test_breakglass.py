@@ -192,3 +192,54 @@ def test_lock_all_skips_app_without_manifest(tmp_path: Path) -> None:
     s.service.lock_all()
     assert s.docker.calls == [("ix-fin-postgres-1", PG_LOCK)]
     assert s.notifier.messages == []
+
+
+# FAILS IF: shared app locks the wrong container; role name not app-scoped; unsafe app name reaches SQL; non-shared path changed
+def _shared_setup(tmp_path: Path, name: str = "fin") -> Setup:
+    s = Setup(tmp_path)
+    deploy = tmp_path / name / "deploy"
+    (deploy / "deploy.yml").write_text(
+        "project: ix-fin\ncompose: compose.yml\nimage_vars: [API_IMAGE_REF]\n"
+        "migrate_service: migrate\nhealth_service: api\n"
+        "database: {engine: postgres, service: data-postgres, shared: true}\n"
+    )
+    return s
+
+
+def _shared_statement(statement: str) -> list[str]:
+    return [
+        "sh",
+        "-c",
+        'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "' + statement + '"',
+    ]
+
+
+def test_shared_open_and_lock_use_platform_container_and_app_role(tmp_path: Path) -> None:
+    s = _shared_setup(tmp_path)
+    s.service.open("fin", "me@x")
+    assert s.docker.calls == [
+        (
+            "platform-data-postgres-1",
+            _shared_statement(
+                "ALTER ROLE fin_breakglass LOGIN VALID UNTIL '2026-01-01T13:00:00+00:00'"
+            ),
+        )
+    ]
+    s.scheduler.scheduled[0][1]()
+    assert s.docker.calls[-1] == (
+        "platform-data-postgres-1",
+        _shared_statement("ALTER ROLE fin_breakglass NOLOGIN"),
+    )
+
+
+def test_shared_unsafe_app_name_never_reaches_sql(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    s.service._config.apps["x-y"] = s.service._config.apps["fin"]  # noqa: SLF001
+    (tmp_path / "fin" / "deploy" / "deploy.yml").write_text(
+        "project: ix-fin\ncompose: compose.yml\nimage_vars: [API_IMAGE_REF]\n"
+        "migrate_service: migrate\nhealth_service: api\n"
+        "database: {engine: postgres, service: data-postgres, shared: true}\n"
+    )
+    with pytest.raises(BreakGlassError):
+        s.service.open("x-y", "me@x")
+    assert s.docker.calls == []

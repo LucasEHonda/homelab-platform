@@ -1,5 +1,7 @@
 infisical_url: http://infisical:8080
 ntfy_url_env: NTFY_URL
+shared_networks:
+  - platform-data
 allowed_workflow_refs:
   - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@
 admins:

@@ -12,6 +12,7 @@ _DIGITS = re.compile(r"^\d+$")
 _IMAGE_PREFIX = re.compile(r"^ghcr\.io/[a-z0-9._-]+/$")
 
 _TOP_KEYS = ("infisical_url", "ntfy_url_env", "allowed_workflow_refs", "admins", "apps")
+_OPTIONAL_TOP_KEYS = ("shared_networks",)
 _APP_KEYS = ("repository", "repository_id", "app_dir", "image_prefixes", "infisical")
 _INFISICAL_KEYS = ("project_id", "environment", "client_id_env", "client_secret_env")
 
@@ -45,6 +46,7 @@ class PlatformConfig:
     admins: frozenset[str]
     infisical_url: str
     ntfy_url_env: str
+    shared_networks: tuple[str, ...] = ()
 
 
 def _check_keys(data: Mapping[object, object], allowed: tuple[str, ...], prefix: str) -> None:
@@ -142,7 +144,8 @@ def _check_overlaps(apps: Mapping[str, AppConfig]) -> None:
 def parse_config(data: object) -> PlatformConfig:
     if not isinstance(data, dict):
         raise ConfigError("config: must be a mapping")
-    _check_keys(data, _TOP_KEYS, "")
+    _check_keys({k: v for k, v in data.items() if k not in _OPTIONAL_TOP_KEYS}, _TOP_KEYS, "")
+    shared_networks = _str_list(data.get("shared_networks", []), "shared_networks")
 
     infisical_url = data["infisical_url"]
     if not isinstance(infisical_url, str) or not infisical_url.startswith(("https://", "http://")):
@@ -175,6 +178,7 @@ def parse_config(data: object) -> PlatformConfig:
         admins=frozenset(admins),
         infisical_url=infisical_url.rstrip("/"),
         ntfy_url_env=ntfy_url_env,
+        shared_networks=tuple(shared_networks),
     )
 
 
