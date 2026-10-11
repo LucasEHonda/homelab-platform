@@ -25,26 +25,24 @@ for project in $PROJECTS; do
   docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.CPUPerc}}' $ids
 done
 
-for spec in ix-games:redis ix-financas:redis platform:infisical-redis; do
+for spec in platform:data-redis platform:infisical-redis; do
   project=${spec%%:*}
   service=${spec#*:}
   id=$(container "$project" "$service")
   [ -n "$id" ] || continue
   echo
   echo "==> $project/$service redis memory and keys"
-  docker exec "$id" redis-cli INFO memory | grep -E '^(used_memory_human|used_memory_peak_human|maxmemory_human|maxmemory_policy):'
-  docker exec "$id" redis-cli INFO keyspace | grep '^db' || echo "(no keys)"
+  # data-redis has no default user; the admin password comes from the container's own environment.
+  if [ "$service" = data-redis ]; then
+    cli='REDISCLI_AUTH="$REDIS_ADMIN_PASSWORD" redis-cli --no-auth-warning --user platform'
+  else
+    cli='redis-cli'
+  fi
+  docker exec "$id" sh -c "$cli INFO memory" | grep -E '^(used_memory_human|used_memory_peak_human|maxmemory_human|maxmemory_policy):'
+  docker exec "$id" sh -c "$cli INFO keyspace" | grep '^db' || echo "(no keys)"
 done
 
-for project in ix-games ix-pinguei; do
-  id=$(container "$project" mysql)
-  [ -n "$id" ] || continue
-  echo
-  echo "==> $project/mysql data size per database (MB)"
-  docker exec "$id" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -e "SELECT table_schema, ROUND(SUM(data_length + index_length) / 1048576, 1) FROM information_schema.tables GROUP BY table_schema;"' 2>/dev/null || echo "(could not query)"
-done
-
-for spec in ix-financas:postgres platform:infisical-db; do
+for spec in platform:data-postgres platform:infisical-db; do
   project=${spec%%:*}
   service=${spec#*:}
   id=$(container "$project" "$service")

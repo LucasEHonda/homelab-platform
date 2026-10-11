@@ -1,39 +1,27 @@
-# Shared data services: operator runbook
+# Shared data services: migration record
 
-Moves games, pinguei and financas from their own database containers to the shared `data-postgres` and `data-redis`. Do the apps one at a time, in this order: games, pinguei, financas.
+The move of games, pinguei and financas from their own database containers to the shared `data-postgres` and `data-redis` finished on 2026-10-11. This page records how it was done. The one-off script and its `make nas-migrate` target were removed afterwards; read the script with `git show be4005c:scripts/nas-migrate-app-db.sh`.
 
-**Warning:** between `prepare` and `finish` of an app, no other push to that app's `main` may happen. A deploy in that window starts the app against a half-migrated database. Merge only the migration PR.
+## What runs now
 
-All commands run from this repository; set `NAS_HOST=user@host` (and `DEPLOYER_VERSION` for `nas-setup`).
+- `data-postgres` (Postgres 16): one database and one role per app (`games`, `pinguei`, `financas`), plus `<app>_readonly` and `<app>_breakglass`. CONNECT is revoked from every other role.
+- `data-redis` (Redis 7.4): one ACL user per app. games uses DB 0; financas uses DB 1 (cache), 2 (broker) and 3 (results); pinguei uses no Redis.
+- `data-backup`: a nightly `pg_dump` of each database at 03:30 into `/mnt/svd/<app>/backups/`, kept 14 days.
+- A new app gets its database and Redis user with `make nas-provision NAS_HOST=user@host APP=<app>`.
 
-## 1. Platform
+## How each app was moved
 
-1. Release the new deployer version (tag this repository).
-2. `make nas-setup DEPLOYER_VERSION=vX.Y.Z`. This creates the data services (Postgres, Redis, backup).
-3. For each app: `make nas-provision APP=games`, then `pinguei`, then `financas`. This creates the database, the roles, `/mnt/svd/platform/.envs/.data-<app>` and the Redis user. It is safe to re-run. Read the read-only password with the `sudo grep READONLY_PASSWORD ...` line it prints.
+1. Platform: tag `v0.2.0`, `make nas-setup`, then `make nas-provision` for the three apps.
+2. games and pinguei (MySQL 8): `prepare` wrote the new Infisical values, stopped the app and dumped MySQL. Merging the app's PR deployed the release whose migrations created the schema. `load` copied the data with pgloader 3.6.7 from a temporary MySQL started with `mysql_native_password`, then compared the row count and a primary-key hash of every table. `finish` checked the containers.
+3. financas (Postgres 16): `prepare` restored a `pg_dump` into the shared database and compared a whole-row md5 of every table (36 tables, all equal). Merging the PR deployed it, and `finish` checked the containers.
+4. After the checks, the old database data dirs and the pre-migration dumps were deleted.
 
-## 2. Per app: games, then pinguei
+## Problems found, for the next migration
 
-1. `make nas-migrate APP=<app> STEP=prepare`. It checks the target, asks for an Infisical admin token, writes the new Infisical values, stops the app, and saves a dump at `/mnt/svd/<app>/backups/pre-migration-<timestamp>.sql.gz`. The app is down from here.
-2. Merge the app's `chore/shared-postgres` PR. Wait for the deploy to finish; the new release creates the empty schema through Django migrations.
-3. `make nas-migrate APP=<app> STEP=load`. It copies the data with pgloader, runs `verify`, and starts the app again. If `verify` fails the app stays stopped. `load` and `verify` stop the old MySQL container and read its data dir through a temporary MySQL that allows the login method pgloader needs (`mysql_native_password`); the old container is kept, so starting it again is the rollback.
-4. Smoke test the app.
-5. `make nas-migrate APP=<app> STEP=finish`. The old MySQL data stays at `/mnt/svd/<app>/data/mysql`; delete it after 30 days.
-
-`make nas-migrate APP=<app> STEP=verify` can be run at any time after `prepare` to compare old and new again.
-
-## 3. Per app: financas
-
-1. `make nas-migrate APP=financas STEP=prepare`. Same as above, and it also restores the dump into the shared database and runs `verify`.
-2. Merge the `chore/shared-data` PR. Wait for the deploy to finish.
-3. `make nas-migrate APP=financas STEP=finish`. The old Postgres data stays at `/mnt/svd/financas/data/postgres`; delete it after 30 days.
-
-## Rollback
-
-The old container data is never touched, so rolling back is always possible until you delete it.
-
-1. Revert the app's migration PR on `main` and let it deploy: the app goes back to its own database container.
-2. The old database still holds the data from before `prepare`. Writes made after the switch are only in the shared database.
-3. If the old database must be rebuilt, restore `/mnt/svd/<app>/backups/pre-migration-<timestamp>.*` into it.
-4. To retry, empty the shared database and start from `prepare` again:
-   `sudo docker exec platform-data-postgres-1 psql -U platform -d <app> -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION <app>'`, then `sudo rm -rf /mnt/svd/platform/data/migrations/<app>`, then `make nas-provision APP=<app>` to restore the privileges and extension.
+- The deployer writes env files as `KEY='value'`; scripts that read them must strip the quotes.
+- An `apps.yml` written before `shared_networks` existed blocks any app that joins `platform-data`; `nas-setup` now adds the key.
+- pgloader 3.6.7 cannot log in with MySQL 8's default `caching_sha2_password`.
+- Django stores a UUIDField as 32 hex chars on MySQL, while Postgres prints `uuid` with hyphens; compare keys without hyphens.
+- Every production compose must load `.postgres` in the app containers. pinguei did not, and its first deploy rolled back.
+- pgloader did not reset the sequences of pinguei; `manage.py sqlsequencereset` fixed them.
+- Capping Infisical's Node heap at 384 MB made it crash at startup; the cap was reverted.
