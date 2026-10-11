@@ -133,6 +133,6 @@ OpenObserve also runs five alerts. Their definitions live in `deploy/openobserve
 - `slow-requests`: a route with at least 5 requests and a p95 above 1 second in 15 minutes.
 - `many-401-403`: 20 or more 401 or 403 responses on one route in 5 minutes.
 - `n-plus-one-queries`: one request ran the same SQL 10 or more times in the last hour.
-- `service-silent`: an app sent spans in the last hour but none in the last 15 minutes.
+- `service-silent`: an app API (`*-api`) sent spans in the last hour but none in the last 15 minutes. Celery workers are not checked, since they are idle for hours by design.
 
 To change an alert, edit `deploy/openobserve/alerts.yml`, merge the change, and run `make nas-setup NAS_HOST=user@host` with the new deployer version (`DEPLOYER_VERSION=vX.Y.Z`). Alert names must be lowercase words joined by `-`, because OpenObserve rejects spaces and symbols.

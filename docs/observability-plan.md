@@ -374,7 +374,7 @@ Alerts made by hand in the UI are never deleted. OpenObserve also joins the `egr
 
 Every query groups by `service_name`, so a newly traced app is covered with no change. A message has the title `OpenObserve alert`. Its body holds the alert name and one line per matching row. Messages carry only the service, the route, counts, latency and normalized SQL. They never carry bodies or headers, because ntfy.sh is public and the topic is the only secret.
 
-The `service-silent` alert uses the health check's database spans as a heartbeat. The check runs every 30 seconds, so an API that stops sending spans is noticed within about 20 minutes (15 minutes of silence plus the 5-minute check).
+The `service-silent` alert uses the health check's database spans as a heartbeat. The check runs every 30 seconds, so an API that stops sending spans is noticed within about 20 minutes (15 minutes of silence plus the 5-minute check). Only services named `*-api` are checked, because Celery workers (`*-worker`) are idle for hours by design.
 
 To change an alert, edit `alerts.yml`, merge the change, and run `make nas-setup NAS_HOST=user@host` with the new deployer version. Alert names must be lowercase words joined by `-`, because OpenObserve rejects spaces and symbols.
 
@@ -386,7 +386,7 @@ Verified locally on OpenObserve v1.0.4: all five queries return the expected row
 | `slow-requests` | A route has at least 5 requests and a p95 above 1 s | 15 min | 5 min | 60 min |
 | `many-401-403` | 20 or more 401/403 responses on one route | 5 min | 1 min | 30 min |
 | `n-plus-one-queries` | One request ran the same SQL 10 or more times | 60 min | 60 min | 24 h |
-| `service-silent` | An app sent spans in the last hour but none in the last 15 min | 60 min | 5 min | 60 min |
+| `service-silent` | An app API (`*-api`) sent spans in the last hour but none in the last 15 min | 60 min | 5 min | 60 min |
 
 ## Security
 
