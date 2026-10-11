@@ -72,13 +72,23 @@ with os.fdopen(fd, "w") as out:
 
 app_name() { echo "${1%%,*}"; }
 
+# The first admin listed in deploy/apps.yml.
+apps_admin_email() {
+  python3 -c '
+import re, sys
+match = re.search(r"^admins:\s*\n\s*-\s*(\S+)", open(sys.argv[1]).read(), re.M)
+print(match.group(1) if match else "")
+' "$P/deploy/apps.yml"
+}
+
 # 1. Folders
 log "folders in $P"
 create_dataset
 mkdir -p "$P/deploy" "$P/.envs" "$P/data/deployer" "$P/data/infisical-db" \
-  "$P/data/tailscale-deployer" "$P/data/tailscale-secrets" \
-  "$P/data/data-postgres" "$P/data/data-redis"
-chown 568:568 "$P/data/infisical-db" "$P/data/data-postgres" "$P/data/data-redis"
+  "$P/data/tailscale-deployer" "$P/data/tailscale-secrets" "$P/data/tailscale-observe" \
+  "$P/data/data-postgres" "$P/data/data-redis" "$P/data/openobserve"
+chown 568:568 "$P/data/infisical-db" "$P/data/data-postgres" "$P/data/data-redis" \
+  "$P/data/openobserve"
 chmod 700 "$P/.envs"
 
 # 2. Deploy files (apps.yml and .env are owned by the server)
@@ -100,6 +110,9 @@ if [ ! -f "$envs/.tailscale-deployer" ]; then
 fi
 if [ ! -f "$envs/.tailscale-secrets" ]; then
   ask_required ts_secrets "Tailscale auth key (tskey-auth-..., tag:secrets)" secret
+fi
+if [ ! -f "$envs/.tailscale-observe" ]; then
+  ask_required ts_observe "Tailscale auth key (tskey-auth-..., tag:observe)" secret
 fi
 if [ ! -f "$envs/docker-config.json" ]; then
   log "ghcr.io login for the deployer (GitHub classic token with only read:packages)"
@@ -132,6 +145,11 @@ if [ ! -f "$envs/.tailscale-secrets" ]; then
   log "writing .envs/.tailscale-secrets"
   printf 'TS_AUTHKEY=%s\nTS_EXTRA_ARGS=--advertise-tags=tag:secrets\n' "$ts_secrets" \
     | write_file "$envs/.tailscale-secrets"
+fi
+if [ ! -f "$envs/.tailscale-observe" ]; then
+  log "writing .envs/.tailscale-observe"
+  printf 'TS_AUTHKEY=%s\nTS_EXTRA_ARGS=--advertise-tags=tag:observe\n' "$ts_observe" \
+    | write_file "$envs/.tailscale-observe"
 fi
 if [ ! -f "$envs/.deployer" ]; then
   log "writing .envs/.deployer"
@@ -199,10 +217,11 @@ print("\n".join([
 PY
 }
 
+apps_changed=""
 if [ ! -f "$P/deploy/apps.yml" ]; then
   log "writing deploy/apps.yml"
   {
-    printf 'infisical_url: http://infisical:8080\nntfy_url_env: NTFY_URL\nshared_networks:\n  - platform-data\nallowed_workflow_refs:\n'
+    printf 'infisical_url: http://infisical:8080\nntfy_url_env: NTFY_URL\nshared_networks:\n  - platform-data\n  - platform-telemetry\nallowed_workflow_refs:\n'
     printf '  - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@\nadmins:\n  - %s\napps:\n' "$admin_email"
     for spec in "$@"; do app_entry "$spec"; done
   } | write_file "$P/deploy/apps.yml"
@@ -211,14 +230,31 @@ else
   if ! grep -q '^shared_networks:' "$P/deploy/apps.yml"; then
     printf 'shared_networks:\n  - platform-data\n' >> "$P/deploy/apps.yml"
     log "added shared_networks to deploy/apps.yml"
+    apps_changed=1
+  fi
+  # Files written before OpenObserve lack this network, and the deployer then rejects apps that send traces.
+  if ! grep -q '^  - platform-telemetry$' "$P/deploy/apps.yml"; then
+    sed -i '/^shared_networks:$/a\  - platform-telemetry' "$P/deploy/apps.yml"
+    log "added platform-telemetry to shared_networks in deploy/apps.yml"
+    apps_changed=1
   fi
   for spec in "$@"; do
     name=$(app_name "$spec")
     if ! grep -q "^  $name:$" "$P/deploy/apps.yml"; then
       app_entry "$spec" >> "$P/deploy/apps.yml"
       log "added $name to deploy/apps.yml"
+      apps_changed=1
     fi
   done
+fi
+
+# OpenObserve's root login is the platform admin from deploy/apps.yml.
+if [ ! -f "$envs/.openobserve" ]; then
+  observe_email=$(apps_admin_email)
+  [ -n "$observe_email" ] || { warn "no admin email in deploy/apps.yml"; exit 1; }
+  log "writing .envs/.openobserve"
+  printf 'ZO_ROOT_USER_EMAIL=%s\nZO_ROOT_USER_PASSWORD=%s\n' "$observe_email" "$(random_secret 32)" \
+    | write_file "$envs/.openobserve"
 fi
 
 # 7. Infisical and its Tailscale sidecar
@@ -237,11 +273,7 @@ if grep -q replace-with-project-id "$P/deploy/apps.yml"; then
     export INFISICAL_ADMIN_PASSWORD="$password"
     auth_env="-e INFISICAL_ADMIN_PASSWORD"
   fi
-  admin_email=$(python3 -c '
-import re, sys
-match = re.search(r"^admins:\s*\n\s*-\s*(\S+)", open(sys.argv[1]).read(), re.M)
-print(match.group(1) if match else "")
-' "$P/deploy/apps.yml")
+  admin_email=$(apps_admin_email)
   [ -n "$admin_email" ] || { warn "no admin email in deploy/apps.yml"; exit 1; }
   app_mounts=""
   for spec in "$@"; do
@@ -277,6 +309,10 @@ done
 # 10. Whole stack
 log "starting the whole stack"
 compose up -d --remove-orphans
+if [ -n "$apps_changed" ]; then
+  log "restarting the deployer to load deploy/apps.yml"
+  compose restart deployer
+fi
 
 # 11. Summary
 site_url=$(env_value SITE_URL "$envs/.infisical")
@@ -284,4 +320,5 @@ tailnet=${site_url#https://secrets.}
 log "ntfy: subscribe to $(env_value NTFY_URL "$envs/.deployer") in the ntfy app"
 log "Infisical: https://secrets.$tailnet"
 log "Deployer: https://deployer.$tailnet"
+log "OpenObserve: https://observe.$tailnet (root login in $P/.envs/.openobserve)"
 log "Keep an offline copy of ENCRYPTION_KEY: sudo grep ENCRYPTION_KEY $P/.envs/.infisical"

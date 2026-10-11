@@ -32,8 +32,8 @@ Only steps 1 and 4 need a browser; the rest is scripted.
 
 1. **Tailscale admin console** (https://login.tailscale.com/admin):
    - Access controls: merge [`tailscale/policy.hujson`](tailscale/policy.hujson) into the policy file. Make sure no grant lets `*` or `autogroup:member` reach every node; admins reaching `*` is fine (that also covers DBeaver, Infisical and break-glass). Add each app's own `deny` targets to the `tests` block.
-   - Settings → Keys: create two auth keys (not reusable, not ephemeral), one tagged `tag:deployer`, one
-     `tag:secrets`.
+   - Settings → Keys: create three auth keys (not reusable, not ephemeral), tagged `tag:deployer`, `tag:secrets` and
+     `tag:observe`.
    - Settings → Trust credentials: if workload identity federation is offered, create one for GitHub
      (issuer `https://token.actions.githubusercontent.com`, subject `repo:<owner>/<repo>:*` per app, tag
      `tag:ci`) and note its client ID and audience. Otherwise create an OAuth client with the `auth_keys`
@@ -43,9 +43,9 @@ Only steps 1 and 4 need a browser; the rest is scripted.
    `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET` (or `TS_AUDIENCE`) on each repository. GitHub Free cannot share
    organization secrets with private repositories, so they are set per repository.
 3. **NAS**: `make nas-setup NAS_HOST=user@host`. It asks for the SSH and sudo passwords, then only what it cannot
-   generate: tailnet name, your email, the two auth keys, a GitHub user and a classic token with only
+   generate: tailnet name, your email, the three auth keys, a GitHub user and a classic token with only
    `read:packages` (the deployer's own registry login), and a password for your new Infisical account. It then:
-   creates `/mnt/svd/platform`, generates every other secret, starts Infisical, creates your admin account, one
+   creates `/mnt/svd/platform`, generates every other secret, starts Infisical, creates your admin account, writes the OpenObserve root login and starts OpenObserve, one
    Infisical project per app with the app's current `.envs/.production/*` imported as folders,
    a read-only machine identity per app
    whose credentials go to `.envs/.deployer`, deletes the old `<app> auto-update` cron jobs, and starts the
@@ -92,3 +92,16 @@ When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables t
 ## Shared data services
 
 All apps use the shared Postgres (`data-postgres`) and Redis (`data-redis`), with one database, role and Redis user per app. A new app gets them with `make nas-provision NAS_HOST=user@host APP=<app>`. How games, pinguei and financas were moved there on 2026-10-11 is recorded in [`docs/shared-data-runbook.md`](docs/shared-data-runbook.md).
+
+## Request observability
+
+OpenObserve (`openobserve`) stores the request traces that the apps send over the internal network `platform-telemetry`, and deletes them after 30 days. Its UI is at `https://observe.<tailnet>.ts.net`, for tailnet admins only. The root login is in `/mnt/svd/platform/.envs/.openobserve`. The data is not backed up. Design: [ADR 0002](docs/adr/0002-request-observability.md). Plan and per-app steps: [docs/observability-plan.md](docs/observability-plan.md).
+
+The apps send traces with an ingestion passcode, which can write data but cannot read it. Create it once, after the first `nas-setup` with OpenObserve:
+
+1. In the UI, add a user such as `ingest@<your domain>` (the open source edition only offers the admin role).
+2. Read its passcode: `curl -u 'ingest@<your domain>:<its password>' https://observe.<tailnet>.ts.net/api/default/passcode`.
+3. Build the header value: `printf 'Authorization=Basic%%20%s\n' "$(printf '%s' 'ingest@<your domain>:<passcode>' | base64 -w0)"`.
+4. In each traced app's Infisical project (environment `prod`, folder `django`), set `OTEL_EXPORTER_OTLP_TRACES_HEADERS` to that value and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to `http://openobserve:5080/api/default/v1/traces`, before the app's first release with tracing.
+
+Run `make nas-setup` before an app's first release with tracing: it creates `platform-telemetry` and adds it to `shared_networks`, without which the deployer rejects the app.

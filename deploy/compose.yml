@@ -109,6 +109,51 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:${OPENOBSERVE_VERSION:-v1.0.4}
+    user: "568:568"
+    env_file: ../.envs/.openobserve
+    environment:
+      ZO_DATA_DIR: /data
+      ZO_LOCAL_MODE: "true"
+      ZO_HTTP_PORT: "5080"
+      ZO_COMPACT_DATA_RETENTION_DAYS: "30"
+      ZO_COMPACT_INTERVAL: "60"
+      ZO_TELEMETRY: "false"
+      # The default memtable limit is half of the host memory, far above this container's limit.
+      ZO_MEM_TABLE_MAX_SIZE: "128"
+      ZO_MAX_FILE_SIZE_IN_MEMORY: "64"
+      ZO_MEMORY_CACHE_ENABLED: "false"
+    volumes:
+      - ../data/openobserve:/data
+    # No healthcheck: the image has no shell or HTTP client to run one.
+    networks: [platform, telemetry]
+    restart: unless-stopped
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+
+  observe-tailscale:
+    image: tailscale/tailscale:${TAILSCALE_VERSION:-v1.102.4}
+    hostname: observe
+    env_file: ../.envs/.tailscale-observe
+    environment:
+      TS_HOSTNAME: observe
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+    volumes:
+      - ../data/tailscale-observe:/var/lib/tailscale
+      - ./tailscale/observe-serve.json:/config/serve.json:ro
+    networks: [platform, egress]
+    depends_on: [openobserve]
+    restart: unless-stopped
+    logging: *logging
+
   data-postgres:
     image: postgres:16
     user: "568:568"
@@ -181,5 +226,8 @@ networks:
     internal: true
   data:
     name: platform-data
+    internal: true
+  telemetry:
+    name: platform-telemetry
     internal: true
   egress: {}
