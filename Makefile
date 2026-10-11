@@ -1,4 +1,4 @@
-.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-migrate nas-dozzle
+.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-dozzle
 
 test:
 	docker compose -f compose.dev.yml run --rm --build test
@@ -9,7 +9,7 @@ REPOS ?= my-games-hub-br/my-games-hub pinguei-br/pinguei my-personal-finances-br
 DEPLOYER_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 # name,repository,app dir,image prefix (the repository id is looked up with gh).
 APPS ?= games,my-games-hub-br/my-games-hub,/mnt/svd/games,ghcr.io/my-games-hub-br/ pinguei,pinguei-br/pinguei,/mnt/svd/pinguei,ghcr.io/pinguei-br/ financas,my-personal-finances-br/accounting_administrator,/mnt/svd/financas,ghcr.io/my-personal-finances-br/
-GENERATE ?= games:mysql=MYSQL_READONLY_PASSWORD,MYSQL_BREAKGLASS_PASSWORD pinguei:mysql=MYSQL_READONLY_PASSWORD,MYSQL_BREAKGLASS_PASSWORD financas:db-users=POSTGRES_READONLY_PASSWORD,POSTGRES_BREAKGLASS_PASSWORD
+GENERATE ?=
 
 # Installs or updates the platform on the NAS: secrets, Infisical import, deployer. Safe to re-run.
 nas-setup:
@@ -60,11 +60,3 @@ nas-provision:
 	$(if $(APP),,$(error set APP=games|pinguei|financas))
 	ssh $(NAS_HOST) "cat > /tmp/nas-provision-app-data.sh" < scripts/nas-provision-app-data.sh
 	ssh -t $(NAS_HOST) "sudo PLATFORM_DIR=$(PLATFORM_DIR) sh /tmp/nas-provision-app-data.sh $(APP); rm -f /tmp/nas-provision-app-data.sh"
-
-# One step of an app's move to the shared database: prepare, load, verify or finish (see docs/shared-data-runbook.md).
-nas-migrate:
-	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
-	$(if $(APP),,$(error set APP=games|pinguei|financas))
-	$(if $(STEP),,$(error set STEP=prepare|load|verify|finish))
-	ssh $(NAS_HOST) "cat > /tmp/nas-migrate-app-db.sh" < scripts/nas-migrate-app-db.sh
-	ssh -t $(NAS_HOST) "sudo PLATFORM_DIR=$(PLATFORM_DIR) sh /tmp/nas-migrate-app-db.sh $(APP) $(STEP); rm -f /tmp/nas-migrate-app-db.sh"

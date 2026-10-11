@@ -46,8 +46,8 @@ Only steps 1 and 4 need a browser; the rest is scripted.
    generate: tailnet name, your email, the two auth keys, a GitHub user and a classic token with only
    `read:packages` (the deployer's own registry login), and a password for your new Infisical account. It then:
    creates `/mnt/svd/platform`, generates every other secret, starts Infisical, creates your admin account, one
-   Infisical project per app with the app's current `.envs/.production/*` imported as folders (plus generated
-   `MYSQL_READONLY_PASSWORD` and `MYSQL_BREAKGLASS_PASSWORD` for games), a read-only machine identity per app
+   Infisical project per app with the app's current `.envs/.production/*` imported as folders,
+   a read-only machine identity per app
    whose credentials go to `.envs/.deployer`, deletes the old `<app> auto-update` cron jobs, and starts the
    deployer. Safe to re-run; `DEPLOYER_VERSION=vX.Y.Z` picks the deployer release (default: latest tag).
 4. **Phone**: install the ntfy app and subscribe to the URL that `nas-setup` printed.
@@ -91,4 +91,4 @@ When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables t
 
 ## Shared data services
 
-Apps move from their own database containers to a shared Postgres and Redis. The operator sequence, the per-app migration steps and the rollback are in [`docs/shared-data-runbook.md`](docs/shared-data-runbook.md).
+All apps use the shared Postgres (`data-postgres`) and Redis (`data-redis`), with one database, role and Redis user per app. A new app gets them with `make nas-provision NAS_HOST=user@host APP=<app>`. How games, pinguei and financas were moved there on 2026-10-11 is recorded in [`docs/shared-data-runbook.md`](docs/shared-data-runbook.md).
