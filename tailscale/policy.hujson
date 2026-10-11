@@ -5,7 +5,8 @@
   "tagOwners": {
     "tag:ci": ["autogroup:admin"],
     "tag:deployer": ["autogroup:admin"],
-    "tag:secrets": ["autogroup:admin"]
+    "tag:secrets": ["autogroup:admin"],
+    "tag:observe": ["autogroup:admin"]
   },
   "grants": [
     // Ephemeral GitHub Actions runners: only the deployer's HTTPS endpoint.
@@ -13,6 +14,6 @@
   ],
   // Rejects the policy on save if a CI runner could reach anything but the deployer.
   "tests": [
-    { "src": "tag:ci", "accept": ["tag:deployer:443"], "deny": ["tag:secrets:443"] }
+    { "src": "tag:ci", "accept": ["tag:deployer:443"], "deny": ["tag:secrets:443", "tag:observe:443"] }
   ]
 }
