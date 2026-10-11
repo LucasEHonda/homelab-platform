@@ -359,7 +359,8 @@ step_finish() {
   if marked done; then log "finish already done"; return 0; fi
   if [ "$APP" != financas ]; then marked loaded || die "run STEP=load first"; fi
   found=0
-  for s in api worker beat flower; do
+  # Flower is on demand after the migration (compose profile "tools"), so it is not checked.
+  for s in api worker beat; do
     ct=ix-$APP-$s-1
     state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$ct" 2>/dev/null) || continue
     found=1
