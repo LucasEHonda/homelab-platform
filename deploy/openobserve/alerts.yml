@@ -74,13 +74,15 @@ alerts:
     row_template: "{service_name} {route}: {repeats}x {query_norm}"
 
   # The health check's database queries are the heartbeat: they reach OpenObserve every 30 s
-  # even with no user traffic, so silence means the API or its tracing is down.
+  # even with no user traffic, so silence means the API or its tracing is down. Only *-api
+  # services count: Celery workers (*-worker) are idle for hours by design.
   - name: service-silent
-    description: An app that sent spans in the last hour sent none in the last 15 minutes.
+    description: An app API that sent spans in the last hour sent none in the last 15 minutes.
     sql: >-
       SELECT service_name,
       CAST((CAST(to_unixtime(now()) AS BIGINT) * 1000000 - max(_timestamp)) / 60000000 AS BIGINT) AS minutes
       FROM "default"
+      WHERE service_name LIKE '%-api'
       GROUP BY service_name
       HAVING max(_timestamp) < (CAST(to_unixtime(now()) AS BIGINT) - 900) * 1000000
     period: 60
