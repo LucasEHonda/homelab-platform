@@ -253,7 +253,8 @@ if [ ! -f "$envs/.openobserve" ]; then
   observe_email=$(apps_admin_email)
   [ -n "$observe_email" ] || { warn "no admin email in deploy/apps.yml"; exit 1; }
   log "writing .envs/.openobserve"
-  printf 'ZO_ROOT_USER_EMAIL=%s\nZO_ROOT_USER_PASSWORD=%s\n' "$observe_email" "$(random_secret 32)" \
+  # OpenObserve refuses to start unless the password has a lowercase, an uppercase, a digit and a symbol.
+  printf 'ZO_ROOT_USER_EMAIL=%s\nZO_ROOT_USER_PASSWORD=%sAa1-\n' "$observe_email" "$(random_secret 32)" \
     | write_file "$envs/.openobserve"
 fi
 
