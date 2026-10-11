@@ -31,7 +31,8 @@ esac
 log() { echo "==> $*"; }
 warn() { echo "nas-migrate-app-db: $*" >&2; }
 die() { warn "$*"; exit 1; }
-env_value() { sed -n "s/^$1=//p" "$2" | tail -1; }
+# The deployer writes KEY='value'; files written by these scripts have no quotes.
+env_value() { sed -n "s/^$1=//p" "$2" | tail -1 | sed "s/^'\(.*\)'\$/\1/"; }
 marked() { [ -f "$M/$1" ]; }
 mark() { date -u +%Y-%m-%dT%H:%M:%SZ > "$M/$1"; }
 
@@ -147,7 +148,8 @@ stats_mysql() {
     return
   fi
   list=""
-  for c in $2; do list="$list${list:+, }$BT$c$BT"; done
+  # Hyphens are dropped on both sides: MySQL keeps UUIDs as 32 hex chars, Postgres prints them with hyphens.
+  for c in $2; do list="$list${list:+, }REPLACE($BT$c$BT, '-', '')"; done
   mysql_q -e "SET SESSION group_concat_max_len = 1073741824; SELECT COUNT(*), IFNULL(MD5(GROUP_CONCAT(k ORDER BY CAST(k AS BINARY) SEPARATOR ',')), '') FROM (SELECT CONCAT_WS('|', $list) AS k FROM $BT$1$BT) AS x" | tr '\t' '|'
 }
 
@@ -157,7 +159,7 @@ stats_new_keys() {
     return
   fi
   list=""
-  for c in $2; do list="$list${list:+, }\"$c\"::text"; done
+  for c in $2; do list="$list${list:+, }replace(\"$c\"::text, '-', '')"; done
   echo "SELECT count(*), coalesce(md5(string_agg(k, ',' ORDER BY k COLLATE \"C\")), '') FROM (SELECT concat_ws('|', $list) AS k FROM \"$1\") AS x" | psql_new "$APP"
 }
 
@@ -358,7 +360,8 @@ step_finish() {
   if marked done; then log "finish already done"; return 0; fi
   if [ "$APP" != financas ]; then marked loaded || die "run STEP=load first"; fi
   found=0
-  for s in api worker beat flower; do
+  # Flower is on demand after the migration (compose profile "tools"), so it is not checked.
+  for s in api worker beat; do
     ct=ix-$APP-$s-1
     state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$ct" 2>/dev/null) || continue
     found=1

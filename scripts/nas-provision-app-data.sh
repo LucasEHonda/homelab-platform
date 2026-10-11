@@ -23,7 +23,8 @@ log() { echo "==> $*"; }
 warn() { echo "nas-provision-app-data: $*" >&2; }
 die() { warn "$*"; exit 1; }
 random_secret() { python3 -c "import secrets; print(secrets.token_urlsafe($1))"; }
-env_value() { sed -n "s/^$1=//p" "$2" | tail -1; }
+# The deployer writes KEY='value'; files written by these scripts have no quotes.
+env_value() { sed -n "s/^$1=//p" "$2" | tail -1 | sed "s/^'\(.*\)'\$/\1/"; }
 
 # write_file <path>: writes stdin to <path> with mode 0600 from the first byte.
 write_file() {
