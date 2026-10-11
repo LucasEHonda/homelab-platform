@@ -51,6 +51,9 @@ services:
   infisical:
     image: infisical/infisical:${INFISICAL_VERSION:-v0.166.3}
     env_file: ../.envs/.infisical
+    # A capped V8 heap keeps the Node process near 500 MB instead of ~720 MB; it overrides any NODE_OPTIONS in .envs.
+    environment:
+      NODE_OPTIONS: --max-old-space-size=384
     depends_on:
       infisical-db:
         condition: service_healthy
@@ -62,7 +65,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1g
+          memory: 640m
 
   infisical-db:
     image: postgres:16
@@ -141,7 +144,7 @@ services:
       - ../data/data-redis:/data
     env_file: ../.envs/.data-redis
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli --no-auth-warning --user platform --pass \"$$REDIS_ADMIN_PASSWORD\" ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_ADMIN_PASSWORD\" redis-cli --no-auth-warning --user platform ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10

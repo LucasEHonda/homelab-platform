@@ -202,11 +202,16 @@ PY
 if [ ! -f "$P/deploy/apps.yml" ]; then
   log "writing deploy/apps.yml"
   {
-    printf 'infisical_url: http://infisical:8080\nntfy_url_env: NTFY_URL\nallowed_workflow_refs:\n'
+    printf 'infisical_url: http://infisical:8080\nntfy_url_env: NTFY_URL\nshared_networks:\n  - platform-data\nallowed_workflow_refs:\n'
     printf '  - LucasEHonda/homelab-platform/.github/workflows/deploy.yml@\nadmins:\n  - %s\napps:\n' "$admin_email"
     for spec in "$@"; do app_entry "$spec"; done
   } | write_file "$P/deploy/apps.yml"
 else
+  # Files written before the shared data services lack this key, and the deployer then rejects platform-data.
+  if ! grep -q '^shared_networks:' "$P/deploy/apps.yml"; then
+    printf 'shared_networks:\n  - platform-data\n' >> "$P/deploy/apps.yml"
+    log "added shared_networks to deploy/apps.yml"
+  fi
   for spec in "$@"; do
     name=$(app_name "$spec")
     if ! grep -q "^  $name:$" "$P/deploy/apps.yml"; then

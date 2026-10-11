@@ -104,7 +104,8 @@ if [ "$APP" != pinguei ]; then
   rm -f "$tmp"
   REDIS_ADMIN_PASSWORD=$(env_value REDIS_ADMIN_PASSWORD "$P/.envs/.data-redis")
   [ -n "$REDIS_ADMIN_PASSWORD" ] || die "no REDIS_ADMIN_PASSWORD in $P/.envs/.data-redis"
-  docker exec "$REDIS" redis-cli --user platform --pass "$REDIS_ADMIN_PASSWORD" ACL LOAD >/dev/null
+  # The password goes through REDISCLI_AUTH so it never shows up in the process list.
+  REDISCLI_AUTH=$REDIS_ADMIN_PASSWORD docker exec -e REDISCLI_AUTH "$REDIS" redis-cli --no-auth-warning --user platform ACL LOAD >/dev/null
 fi
 
 log "database $APP ready: roles $APP, ${APP}_readonly, ${APP}_breakglass (no login until opened)"
