@@ -109,14 +109,43 @@ class InfisicalAdmin:
         except (KeyError, TypeError):
             raise BootstrapError("POST /api/v1/projects: unexpected response") from None
 
-    def create_folder(self, project_id: str, name: str) -> None:
+    def find_project(self, name: str) -> str:
+        data = self._request("GET", "/api/v1/projects")
+        # Older Infisical versions name the list "workspaces".
+        projects = data.get("projects") or data.get("workspaces") or []
+        for project in projects:
+            if isinstance(project, dict) and project.get("name") == name:
+                return project["id"]
+        raise BootstrapError(f"no Infisical project named {name} visible to this token")
+
+    def list_secret_keys(self, project_id: str, environment: str, folder: str) -> set[str]:
+        """Names of the secrets in one folder; values are not kept. A missing folder has none."""
+        try:
+            data = self._request(
+                "GET",
+                f"/api/v4/secrets?projectId={project_id}&environment={environment}"
+                f"&secretPath=/{folder}",
+            )
+        except BootstrapError as exc:
+            if "HTTP 404" in str(exc):
+                return set()
+            raise
+        return {item["secretKey"] for item in data.get("secrets", [])}
+
+    def create_folder(self, project_id: str, name: str, environment: str = ENVIRONMENT) -> None:
         self._request(
             "POST",
             "/api/v2/folders",
-            {"projectId": project_id, "environment": ENVIRONMENT, "name": name, "path": "/"},
+            {"projectId": project_id, "environment": environment, "name": name, "path": "/"},
         )
 
-    def create_secrets(self, project_id: str, folder: str, values: Mapping[str, str]) -> None:
+    def create_secrets(
+        self,
+        project_id: str,
+        folder: str,
+        values: Mapping[str, str],
+        environment: str = ENVIRONMENT,
+    ) -> None:
         if not values:
             return
         self._request(
@@ -124,7 +153,7 @@ class InfisicalAdmin:
             "/api/v4/secrets/batch",
             {
                 "projectId": project_id,
-                "environment": ENVIRONMENT,
+                "environment": environment,
                 "secretPath": f"/{folder}",
                 "secrets": [
                     {"secretKey": key, "secretValue": value} for key, value in values.items()

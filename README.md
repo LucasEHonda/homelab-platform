@@ -61,6 +61,27 @@ Only steps 1 and 4 need a browser; the rest is scripted.
 - `scripts/github-setup.sh <owner>/<repo>`;
 - in the app: `deploy/deploy.yml`, `deploy/Dockerfile.bundle`, and a `deploy.yml` workflow calling this repo's workflow by SHA (copy my-games-hub).
 
+## Adding a secret to an app
+
+A key added to an app's `.envs/.production/*.example` blocks the deploy until it exists in the app's Infisical project. Before merging the change, run:
+
+```bash
+make secrets APP=<app> REF=<branch> INFISICAL_URL=https://secrets.<tailnet>.ts.net
+```
+
+It reads the templates of that branch, then for each key the project lacks it generates the value or asks for it, and creates it. An existing secret is never changed. It runs on your machine over Tailscale (no SSH) and asks for a short-lived Infisical admin token (as above). `CHECK=1` only lists the missing keys.
+
+A template asks for a generated value with a comment right above the key. Keys without one are asked for, with the template value as the default unless it is an `__PLACEHOLDER__`.
+
+```
+# generate: token_urlsafe 50      (also token_hex N; N bytes, 16-128)
+DJANGO_SECRET_KEY=
+# generate: vapid_public_key      (Web Push; the two halves are generated as one pair)
+VAPID_PUBLIC_KEY=
+# generate: vapid_private_key
+VAPID_PRIVATE_KEY=
+```
+
 ## Rotating credentials
 
 - Tailscale OAuth client: create a new one, update the organization secrets, then delete the old one.
