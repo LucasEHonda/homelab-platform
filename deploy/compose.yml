@@ -51,9 +51,6 @@ services:
   infisical:
     image: infisical/infisical:${INFISICAL_VERSION:-v0.166.3}
     env_file: ../.envs/.infisical
-    # A capped V8 heap keeps the Node process near 500 MB instead of ~720 MB; it overrides any NODE_OPTIONS in .envs.
-    environment:
-      NODE_OPTIONS: --max-old-space-size=384
     depends_on:
       infisical-db:
         condition: service_healthy
@@ -65,7 +62,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 640m
+          memory: 1g
 
   infisical-db:
     image: postgres:16
