@@ -116,7 +116,7 @@ All apps use the shared Postgres (`data-postgres`) and Redis (`data-redis`), wit
 
 ## Request observability
 
-OpenObserve (`openobserve`) stores the request traces that the apps send over the internal network `platform-telemetry`, and deletes them after 30 days. Its UI is at `https://observe.<tailnet>.ts.net`, for tailnet admins only. The root login is in `/mnt/svd/platform/.envs/.openobserve`. The data is not backed up. Design: [ADR 0002](docs/adr/0002-request-observability.md). Plan and per-app steps: [docs/observability-plan.md](docs/observability-plan.md).
+OpenObserve (`openobserve`) stores the request traces that the apps send over the internal network `platform-telemetry`, and deletes them after 30 days. Its UI is at `https://observe.<tailnet>.ts.net`, for tailnet admins only. The root login is in `/mnt/svd/platform/.envs/.openobserve`, and `nas-setup` uses it to apply the alerts, so the password in that file must stay the one OpenObserve accepts. OpenObserve reads `ZO_ROOT_USER_PASSWORD` only on its first start: to change the password, call `PUT /api/default/users/<root email>` with `{"change_password": true, "old_password": "...", "new_password": "..."}` and write the new value to the file. Editing only the file, or only the UI, makes the alerts step fail with HTTP 401. The data is not backed up. Design: [ADR 0002](docs/adr/0002-request-observability.md). Plan and per-app steps: [docs/observability-plan.md](docs/observability-plan.md).
 
 The apps send traces with an ingestion passcode, which can write data but cannot read it. Create it once, after the first `nas-setup` with OpenObserve:
 
