@@ -54,11 +54,11 @@ if [ "$exists" = 0 ]; then
   fi
   log "creating the TrueNAS app dozzle"
   payload=$(python3 -c 'import json, sys; print(json.dumps({"app_name": "dozzle", "custom_app": True, "custom_compose_config_string": sys.argv[1]}))' "$compose")
-  midclt call -job app.create "$payload" >/dev/null
+  midclt call -j app.create "$payload" >/dev/null
 else
   log "updating the TrueNAS app dozzle"
   payload=$(python3 -c 'import json, sys; print(json.dumps({"custom_compose_config_string": sys.argv[1]}))' "$compose")
-  midclt call -job app.update dozzle "$payload" >/dev/null
+  midclt call -j app.update dozzle "$payload" >/dev/null
 fi
 
 host=$(hostname -I | awk '{print $1}')
