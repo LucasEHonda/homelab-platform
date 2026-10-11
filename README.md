@@ -126,3 +126,13 @@ The apps send traces with an ingestion passcode, which can write data but cannot
 4. In each traced app's Infisical project (environment `prod`, folder `django`), set `OTEL_EXPORTER_OTLP_TRACES_HEADERS` to that value and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to `http://openobserve:5080/api/default/v1/traces`, before the app's first release with tracing.
 
 Run `make nas-setup` before an app's first release with tracing: it creates `platform-telemetry` and adds it to `shared_networks`, without which the deployer rejects the app.
+
+OpenObserve also runs five alerts. Their definitions live in `deploy/openobserve/alerts.yml`. The deployer tool `deployer/tools/openobserve_alerts.py` applies that file. `scripts/nas-setup.sh` runs it as step 10 at the end of every setup. Each run creates or updates the alerts and deletes the ones tagged `managed:homelab-platform` that are no longer in the file. Alerts made by hand in the UI are never deleted. The alerts post to the deployer's `NTFY_URL`, the same ntfy topic as the deploy results. Their messages have the title `OpenObserve alert`. The body holds the alert name and one line per matching row. The alerts read the traces of all apps, so a newly traced app is covered with no change.
+
+- `server-errors-5xx`: any 5xx response in 5 minutes.
+- `slow-requests`: a route with at least 5 requests and a p95 above 1 second in 15 minutes.
+- `many-401-403`: 20 or more 401 or 403 responses on one route in 5 minutes.
+- `n-plus-one-queries`: one request ran the same SQL 10 or more times in the last hour.
+- `service-silent`: an app sent spans in the last hour but none in the last 15 minutes.
+
+To change an alert, edit `deploy/openobserve/alerts.yml`, merge the change, and run `make nas-setup NAS_HOST=user@host` with the new deployer version (`DEPLOYER_VERSION=vX.Y.Z`). Alert names must be lowercase words joined by `-`, because OpenObserve rejects spaces and symbols.

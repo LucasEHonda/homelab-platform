@@ -127,7 +127,8 @@ services:
     volumes:
       - ../data/openobserve:/data
     # No healthcheck: the image has no shell or HTTP client to run one.
-    networks: [platform, telemetry]
+    # egress: alerts post to ntfy.sh.
+    networks: [platform, telemetry, egress]
     restart: unless-stopped
     logging: *logging
     deploy:

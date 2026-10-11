@@ -358,7 +358,35 @@ WHERE span_kind = '2' AND http_status_code >= 500
 ORDER BY _timestamp DESC
 ```
 
-Build one dashboard with: requests per minute per app, error rate per app, p95 latency per route, and a table of the latest 5xx responses. OpenObserve alerts can post to the existing ntfy topic later. That is out of scope for this plan.
+Build one dashboard with: requests per minute per app, error rate per app, p95 latency per route, and a table of the latest 5xx responses. Alerts that post to the deployer's ntfy topic are described in Part 4.
+
+## Part 4: alerts
+
+OpenObserve runs five alerts on the traces stream. Their definitions live in `deploy/openobserve/alerts.yml`. `deployer/tools/openobserve_alerts.py` applies that file. `scripts/nas-setup.sh` runs the tool as step 10, at the end of every setup, inside the deployer image.
+
+On each run the tool:
+
+1. Upserts an ntfy template and a destination named `ntfy`. The destination posts to the deployer's `NTFY_URL`, the same topic as the deploy results.
+2. Creates each alert in the file, or updates it if it already exists.
+3. Deletes each alert tagged `managed:homelab-platform` that is no longer in the file.
+
+Alerts made by hand in the UI are never deleted. OpenObserve also joins the `egress` network, so it can reach ntfy.sh.
+
+Every query groups by `service_name`, so a newly traced app is covered with no change. A message has the title `OpenObserve alert`. Its body holds the alert name and one line per matching row. Messages carry only the service, the route, counts, latency and normalized SQL. They never carry bodies or headers, because ntfy.sh is public and the topic is the only secret.
+
+The `service-silent` alert uses the health check's database spans as a heartbeat. The check runs every 30 seconds, so an API that stops sending spans is noticed within about 20 minutes (15 minutes of silence plus the 5-minute check).
+
+To change an alert, edit `alerts.yml`, merge the change, and run `make nas-setup NAS_HOST=user@host` with the new deployer version. Alert names must be lowercase words joined by `-`, because OpenObserve rejects spaces and symbols.
+
+Verified locally on OpenObserve v1.0.4: all five queries return the expected rows on test spans. Four alerts delivered their messages. The `service-silent` alert was checked by query only.
+
+| Alert | Fires when | Window | Checked every | Silence |
+|---|---|---|---|---|
+| `server-errors-5xx` | Any 5xx response | 5 min | 1 min | 30 min |
+| `slow-requests` | A route has at least 5 requests and a p95 above 1 s | 15 min | 5 min | 60 min |
+| `many-401-403` | 20 or more 401/403 responses on one route | 5 min | 1 min | 30 min |
+| `n-plus-one-queries` | One request ran the same SQL 10 or more times | 60 min | 60 min | 24 h |
+| `service-silent` | An app sent spans in the last hour but none in the last 15 min | 60 min | 5 min | 60 min |
 
 ## Security
 
