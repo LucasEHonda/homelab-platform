@@ -29,9 +29,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _create_folder(admin: InfisicalAdmin, project_id: str, folder: str) -> None:
+def _create_folder(
+    admin: InfisicalAdmin, project_id: str, folder: str, environment: str = ENVIRONMENT
+) -> None:
     try:
-        admin.create_folder(project_id, folder)
+        admin.create_folder(project_id, folder, environment)
     except BootstrapError as exc:
         message = str(exc)
         exists = ("HTTP 400" in message or "HTTP 409" in message) and "already exists" in message
@@ -53,7 +55,7 @@ def run(
             raise BootstrapError("INFISICAL_TOKEN is required")
         admin = admin or InfisicalAdmin(args.url)
         admin.use_token(token)
-        _create_folder(admin, args.project_id, args.folder)
+        _create_folder(admin, args.project_id, args.folder, args.environment)
         admin._request(
             "PATCH",
             "/api/v4/secrets/batch",
