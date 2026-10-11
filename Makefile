@@ -1,4 +1,4 @@
-.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-migrate
+.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-migrate nas-dozzle
 
 test:
 	docker compose -f compose.dev.yml run --rm --build test
@@ -45,6 +45,14 @@ nas-stats:
 	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
 	ssh $(NAS_HOST) "cat > /tmp/nas-stats.sh" < scripts/nas-stats.sh
 	ssh -t $(NAS_HOST) "sudo sh /tmp/nas-stats.sh; rm -f /tmp/nas-stats.sh"
+
+# Installs or updates Dozzle (read-only logs and stats of every container) as a TrueNAS app. Asks for its password.
+nas-dozzle:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	sh scripts/dozzle-users.sh $(or $(DOZZLE_USER),admin) > .dozzle-users.yml
+	ssh $(NAS_HOST) "umask 077; cat > /tmp/dozzle-users.yml" < .dozzle-users.yml; rc=$$?; rm -f .dozzle-users.yml; exit $$rc
+	ssh $(NAS_HOST) "cat > /tmp/nas-dozzle.sh" < scripts/nas-dozzle.sh
+	ssh -t $(NAS_HOST) "sudo PLATFORM_DIR=$(PLATFORM_DIR) DOZZLE_PORT=$(or $(DOZZLE_PORT),8888) sh /tmp/nas-dozzle.sh /tmp/dozzle-users.yml; rm -f /tmp/nas-dozzle.sh /tmp/dozzle-users.yml"
 
 # Creates one app's database, roles, credentials and Redis user on the shared data services. Safe to re-run.
 nas-provision:
