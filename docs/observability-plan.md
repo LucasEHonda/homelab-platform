@@ -85,6 +85,7 @@ Two services and one network:
       ZO_COMPACT_DATA_RETENTION_DAYS: "30"
       ZO_COMPACT_INTERVAL: "60"
       ZO_TELEMETRY: "false"                # no anonymous telemetry to the vendor
+      ZO_USAGE_REPORTING_ENABLED: "true"   # alert run history in the _meta org, shown in the UI
       ZO_MEM_TABLE_MAX_SIZE: "128"         # MB. The default memtable limit is half of the host memory, far above this container's limit.
       ZO_MAX_FILE_SIZE_IN_MEMORY: "64"     # MB; default 256 is too large for a 512 MB limit
       ZO_MEMORY_CACHE_ENABLED: "false"     # query speed vs memory; turn on if queries are slow

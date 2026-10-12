@@ -120,6 +120,8 @@ services:
       ZO_COMPACT_DATA_RETENTION_DAYS: "30"
       ZO_COMPACT_INTERVAL: "60"
       ZO_TELEMETRY: "false"
+      # Records alert runs in the _meta org, so the UI shows alert history and the home chart.
+      ZO_USAGE_REPORTING_ENABLED: "true"
       # The default memtable limit is half of the host memory, far above this container's limit.
       ZO_MEM_TABLE_MAX_SIZE: "128"
       ZO_MAX_FILE_SIZE_IN_MEMORY: "64"
