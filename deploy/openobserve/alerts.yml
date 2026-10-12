@@ -2,6 +2,7 @@
 # Every query reads the traces stream "default" across all apps, so a newly traced app is covered
 # without changes here. Times are in minutes. An alert fires when its query returns at least
 # `threshold` rows, and each row becomes one line of the ntfy message (row_template).
+# In a row_template, $OBSERVE_URL becomes the OpenObserve UI address (https://observe.<tailnet>).
 # Names must be lowercase words joined by '-' (OpenObserve rejects spaces and symbols).
 # Messages go to the public ntfy.sh topic: never select bodies, headers or other user data.
 alerts:
@@ -50,14 +51,21 @@ alerts:
     silence: 30
     row_template: "{service_name} {route}: {denied} denied"
 
-  # Quotes are stripped from the SQL so the ntfy message stays readable.
+  # Quotes are stripped from the SQL so the ntfy message stays readable. caller is the app line
+  # that ran the query (code.file.path and code.line.number, set by each app's tracing). The link
+  # opens the trace with the most repeats, from one minute before its first query to one after.
   - name: n-plus-one-queries
     description: One request ran the same SQL statement 10 or more times in the last hour.
     sql: >-
       SELECT r.service_name AS service_name, COALESCE(r.http_route, 'unrouted') AS route,
-      q.query_norm AS query_norm, max(q.repeats) AS repeats
+      q.query_norm AS query_norm, q.caller AS caller, max(q.repeats) AS repeats,
+      first_value(q.trace_id ORDER BY q.repeats DESC) AS trace_id,
+      first_value(q.first_us ORDER BY q.repeats DESC) AS from_us,
+      first_value(q.last_us ORDER BY q.repeats DESC) AS to_us
       FROM (
-        SELECT trace_id, o2_db_fingerprint, replace(max(o2_db_query_norm), '"', '') AS query_norm, count(*) AS repeats
+        SELECT trace_id, o2_db_fingerprint, replace(max(o2_db_query_norm), '"', '') AS query_norm,
+        COALESCE(max(code_file_path) || ':' || CAST(max(code_line_number) AS VARCHAR), 'unknown') AS caller,
+        count(*) AS repeats, min(_timestamp) - 60000000 AS first_us, max(_timestamp) + 60000000 AS last_us
         FROM "default"
         WHERE span_kind = '3'
         GROUP BY trace_id, o2_db_fingerprint
@@ -65,13 +73,13 @@ alerts:
       ) q
       JOIN (SELECT trace_id, service_name, http_route FROM "default" WHERE span_kind = '2') r
       ON q.trace_id = r.trace_id
-      GROUP BY service_name, route, query_norm
+      GROUP BY service_name, route, query_norm, caller
     period: 60
     frequency: 60
     operator: ">="
     threshold: 1
     silence: 1440
-    row_template: "{service_name} {route}: {repeats}x {query_norm}"
+    row_template: "{service_name} {route}: {repeats}x at {caller} | {query_norm} | $OBSERVE_URL/web/traces/trace-details?stream=default&org_identifier=default&trace_id={trace_id}&from={from_us}&to={to_us}"
 
   # The health check's database queries are the heartbeat: they reach OpenObserve every 30 s
   # even with no user traffic, so silence means the API or its tracing is down. Only *-api
