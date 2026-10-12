@@ -98,7 +98,7 @@ Two services and one network:
       resources:
         limits:
           cpus: "0.5"
-          memory: 512m
+          memory: 1536m
 
   observe-tailscale:
     image: tailscale/tailscale:${TAILSCALE_VERSION:-v1.102.4}

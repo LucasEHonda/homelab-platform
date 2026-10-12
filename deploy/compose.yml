@@ -137,7 +137,8 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 512m
+          # Trace list queries over 12 h (count distinct, first_value per trace) went past 512m and got OOM-killed.
+          memory: 1536m
 
   observe-tailscale:
     image: tailscale/tailscale:${TAILSCALE_VERSION:-v1.102.4}
