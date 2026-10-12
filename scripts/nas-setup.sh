@@ -315,6 +315,8 @@ if [ -n "$apps_changed" ]; then
   compose restart deployer
 fi
 
+site_url=$(env_value SITE_URL "$envs/.infisical")
+tailnet=${site_url#https://secrets.}
 # OpenObserve alerts from deploy/openobserve/alerts.yml; ntfy goes to the deployer's NTFY_URL.
 log "applying OpenObserve alerts"
 docker run --rm --network platform_platform \
@@ -322,11 +324,10 @@ docker run --rm --network platform_platform \
   --entrypoint python "ghcr.io/lucasehonda/homelab-deployer:$DEPLOYER_VERSION" \
   -m deployer.tools.openobserve_alerts --url http://openobserve:5080 \
   --alerts-file /config/alerts.yml --openobserve-env /envs/.openobserve --deployer-env /envs/.deployer \
+  --observe-url "https://observe.$tailnet" \
   || { warn "OpenObserve alerts failed; fix the error above and run again"; exit 1; }
 
 # 11. Summary
-site_url=$(env_value SITE_URL "$envs/.infisical")
-tailnet=${site_url#https://secrets.}
 log "ntfy: subscribe to $(env_value NTFY_URL "$envs/.deployer") in the ntfy app"
 log "Infisical: https://secrets.$tailnet"
 log "Deployer: https://deployer.$tailnet"

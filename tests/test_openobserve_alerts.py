@@ -1,5 +1,6 @@
 import base64
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -52,6 +53,8 @@ BASE = {
     "silence": 30,
     "row_template": "r",
 }
+
+OBSERVE_URL = "https://observe.t.ts.net"
 
 
 def spec(name="a", sql="SELECT 1"):
@@ -154,7 +157,7 @@ def test_alert_fields_match_spec():
 
 
 def test_alert_payload_exact():
-    assert alert_payload(spec()) == {
+    assert alert_payload(spec(), OBSERVE_URL) == {
         "name": "a",
         "description": "d",
         "stream_type": "traces",
@@ -174,6 +177,17 @@ def test_alert_payload_exact():
         "row_template": "r",
         "destinations": ["ntfy"],
     }
+
+
+def test_repo_alerts_file_is_valid():
+    specs = parse_alerts(Path("deploy/openobserve/alerts.yml").read_text())
+    payloads = [alert_payload(s, OBSERVE_URL) for s in specs]
+    assert all("$OBSERVE_URL" not in p["row_template"] for p in payloads)
+    n_plus_one = next(p for p in payloads if p["name"] == "n-plus-one-queries")
+    assert n_plus_one["row_template"].endswith(
+        " | https://observe.t.ts.net/web/traces/trace-details?stream=default&org_identifier=default"
+        "&trace_id={trace_id}&from={from_us}&to={to_us}"
+    )
 
 
 def test_plan_changes():
@@ -233,7 +247,7 @@ def test_every_request_carries_basic_auth():
 
 def test_error_response_hides_payload():
     recorder = Recorder(alert_post_error={"code": 400, "message": "bad sql"})
-    payload = alert_payload(spec(sql="SELECT secret_column"))
+    payload = alert_payload(spec(sql="SELECT secret_column"), OBSERVE_URL)
     with pytest.raises(AlertsError) as error:
         make_admin(recorder).create_alert(payload)
     assert "HTTP 400 bad sql" in str(error.value)
@@ -247,7 +261,9 @@ def test_apply_alerts_call_order():
         {"alert_id": "id-hand", "name": "hand"},
     ]
     recorder = Recorder(alerts=existing)
-    plan = apply_alerts(make_admin(recorder), [spec("a"), spec("new-alert")], "https://ntfy.sh/t")
+    plan = apply_alerts(
+        make_admin(recorder), [spec("a"), spec("new-alert")], "https://ntfy.sh/t", OBSERVE_URL
+    )
     assert recorder.calls() == [
         ("PUT", "/api/default/alerts/templates/ntfy"),
         ("PUT", "/api/default/alerts/destinations/ntfy"),
@@ -261,7 +277,8 @@ def test_apply_alerts_call_order():
 
 def write_inputs(tmp_path, deployer_text):
     alerts = tmp_path / "alerts.yml"
-    alerts.write_text(_doc(BASE))
+    row_template = "$OBSERVE_URL/web/traces?trace_id={trace_id}"
+    alerts.write_text(_doc({**BASE, "row_template": row_template}))
     observe = tmp_path / ".openobserve"
     observe.write_text("ZO_ROOT_USER_EMAIL=root@x\nZO_ROOT_USER_PASSWORD=s3cret-pw\n")
     deployer = tmp_path / ".deployer"
@@ -271,18 +288,26 @@ def write_inputs(tmp_path, deployer_text):
         "--alerts-file", str(alerts),
         "--openobserve-env", str(observe),
         "--deployer-env", str(deployer),
+        "--observe-url", "https://observe.t.ts.net/",
     ]
 
 
 def test_run_end_to_end(tmp_path, capsys):
     argv = write_inputs(tmp_path, "NTFY_URL=https://ntfy.sh/homelab-abc\n")
-    code = run(argv, admin=make_admin(Recorder()))
+    recorder = Recorder()
+    code = run(argv, admin=make_admin(recorder))
     captured = capsys.readouterr()
     assert code == 0
     assert "openobserve alerts: 1 created, 0 updated, 0 deleted" in captured.out
     output = captured.out + captured.err
     assert "s3cret-pw" not in output
     assert "homelab-abc" not in output
+    posted = [
+        body
+        for method, path, body, _ in recorder.requests
+        if (method, path) == ("POST", "/api/v2/default/alerts")
+    ]
+    assert posted[0]["row_template"] == "https://observe.t.ts.net/web/traces?trace_id={trace_id}"
 
 
 def test_run_without_ntfy_url(tmp_path, capsys):

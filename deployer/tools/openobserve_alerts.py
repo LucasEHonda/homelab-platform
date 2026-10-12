@@ -24,6 +24,8 @@ TEMPLATE_NAME = "ntfy"
 DESTINATION_NAME = "ntfy"
 MANAGED_TAG = "managed:homelab-platform"
 TEMPLATE_BODY = "{alert_name}\n{rows}"
+# Replaced in every row_template with the OpenObserve UI address given by --observe-url.
+OBSERVE_URL_TOKEN = "$OBSERVE_URL"
 NTFY_HEADERS = {"Title": "OpenObserve alert", "Tags": "warning"}
 ALERT_FIELDS = (
     "name",
@@ -136,7 +138,7 @@ def parse_alerts(text: str) -> list[AlertSpec]:
     return specs
 
 
-def alert_payload(spec: AlertSpec) -> dict:
+def alert_payload(spec: AlertSpec, observe_url: str) -> dict:
     return {
         "name": spec.name,
         "description": spec.description,
@@ -154,7 +156,7 @@ def alert_payload(spec: AlertSpec) -> dict:
             "frequency_type": "minutes",
             "silence": spec.silence,
         },
-        "row_template": spec.row_template,
+        "row_template": spec.row_template.replace(OBSERVE_URL_TOKEN, observe_url),
         "destinations": [DESTINATION_NAME],
     }
 
@@ -277,14 +279,16 @@ class OpenObserveAdmin:
         self._request("DELETE", f"/api/v2/{ORG}/alerts/{alert_id}")
 
 
-def apply_alerts(admin: OpenObserveAdmin, specs: Sequence[AlertSpec], ntfy_url: str) -> AlertPlan:
+def apply_alerts(
+    admin: OpenObserveAdmin, specs: Sequence[AlertSpec], ntfy_url: str, observe_url: str
+) -> AlertPlan:
     admin.put_template(TEMPLATE_NAME, TEMPLATE_BODY)
     admin.put_destination(DESTINATION_NAME, ntfy_url, TEMPLATE_NAME, NTFY_HEADERS)
     plan = plan_changes(specs, admin.list_alerts())
     for spec in plan.create:
-        admin.create_alert(alert_payload(spec))
+        admin.create_alert(alert_payload(spec, observe_url))
     for alert_id, spec in plan.update:
-        admin.update_alert(alert_id, alert_payload(spec))
+        admin.update_alert(alert_id, alert_payload(spec, observe_url))
     for alert_id in plan.delete:
         admin.delete_alert(alert_id)
     return plan
@@ -296,6 +300,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alerts-file", required=True, type=Path)
     parser.add_argument("--openobserve-env", required=True, type=Path)
     parser.add_argument("--deployer-env", required=True, type=Path)
+    parser.add_argument("--observe-url", required=True)
     return parser
 
 
@@ -317,7 +322,7 @@ def run(argv: Sequence[str] | None = None, *, admin: OpenObserveAdmin | None = N
         ntfy_url = _require(deployer, "NTFY_URL", args.deployer_env)
         admin = admin or OpenObserveAdmin(args.url, email, password)
         admin.wait_ready()
-        plan = apply_alerts(admin, specs, ntfy_url)
+        plan = apply_alerts(admin, specs, ntfy_url, args.observe_url.rstrip("/"))
     except AlertsError as exc:
         print(f"openobserve_alerts: {exc}", file=sys.stderr)
         return 1
