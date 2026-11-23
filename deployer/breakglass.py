@@ -64,6 +64,8 @@ class BreakGlassService:
             if not _ROLE_APP.match(app_name):
                 raise BreakGlassError(f"{app_name}: unsafe name for a shared database role")
             return _SHARED_CONTAINER, manifest.database
+        if not app.owns_project(manifest.project):
+            raise BreakGlassError(f"project {manifest.project} does not belong to {app_name}")
         return f"{manifest.project}-{manifest.database.service}-1", manifest.database
 
     @staticmethod

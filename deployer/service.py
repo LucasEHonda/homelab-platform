@@ -13,6 +13,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
+import yaml
+
 from deployer.config import AppConfig, PlatformConfig
 from deployer.manifest import (
     ManifestError,
@@ -21,7 +23,7 @@ from deployer.manifest import (
     resolve_in_app_dir,
 )
 from deployer.notify import Notifier
-from deployer.policy import PolicyError, check_compose, validate_image_ref
+from deployer.policy import PolicyError, check_compose, check_env_files, validate_image_ref
 from deployer.runner import ComposeTarget, Docker, DockerError
 from deployer.secrets import (
     InfisicalClient,
@@ -220,6 +222,10 @@ class DeploymentService:
             self._docker.extract_bundle(request.bundle, release_dir)
 
             manifest = load_manifest(release_dir / "deploy.yml")
+            # The project names every container the deployer execs into and every one compose
+            # replaces, so a bundle may only name its own app's project.
+            if not app.owns_project(manifest.project):
+                raise _Blocked(f"project {manifest.project} does not belong to {app.name}")
             if set(request.images) != set(manifest.image_vars):
                 raise _Blocked(f"images must be exactly {sorted(manifest.image_vars)}")
 
@@ -256,11 +262,16 @@ class DeploymentService:
             violations = check_compose(
                 rendered, app_dir, app.image_prefixes, self._config.shared_networks
             )
+            raw = yaml.safe_load((release_dir / manifest.compose).read_text()) or {}
+            violations += check_env_files(raw, app_dir / "deploy", app_dir)
             if violations:
                 raise _Blocked("; ".join(violations))
 
             services = rendered.get("services") or {}
-            for service_name in (manifest.migrate_service, manifest.health_service):
+            required_services = [manifest.migrate_service, manifest.health_service]
+            if manifest.backup is not None and not manifest.backup.shared:
+                required_services.append(manifest.backup.service)
+            for service_name in required_services:
                 if service_name not in services:
                     raise _Blocked(f"service {service_name} is not in {manifest.compose}")
 
