@@ -46,7 +46,11 @@ class FakeDocker:
         self.manifest: dict[str, Any] = dict(MANIFEST)
         self.template: str | None = "A=\nB=\n"
         self.rendered: dict[str, Any] = {
-            "services": {"migrate": {"image": API}, "api": {"image": API}}
+            "services": {
+                "migrate": {"image": API},
+                "api": {"image": API},
+                "backup": {"image": "postgres:16"},
+            }
         }
         self.fail_up_on: set[int] = set()
         self.exec_result = CommandResult(0, "", "")
@@ -59,6 +63,7 @@ class FakeDocker:
         self.inspect_calls = 0
         self.compose_config_calls = 0
         self.required_files: list[Path] = []
+        self.compose_text = "services: {}"
 
     def pull(self, ref: str) -> None:
         self.pulled.append(ref)
@@ -66,7 +71,7 @@ class FakeDocker:
     def extract_bundle(self, ref: str, dest: Path) -> None:
         dest.mkdir(parents=True)
         (dest / "deploy.yml").write_text(yaml.safe_dump(self.manifest))
-        (dest / "compose.yml").write_text("services: {}")
+        (dest / "compose.yml").write_text(self.compose_text)
         if self.template is not None:
             (dest / "envs").mkdir()
             (dest / "envs" / ".django.example").write_text(self.template)
@@ -477,4 +482,54 @@ def test_shared_backup_failure_fails_without_switch(env: Env) -> None:
     deployment = env.deploy()
     assert deployment.status == "failed"
     assert deployment.detail == "database backup failed"
+    assert not env.link.is_symlink()
+
+
+@pytest.mark.parametrize("project", ["platform", "ix-pinguei", "pinguei", "ix-games-x"])
+def test_project_of_another_stack_blocks_before_any_exec(env: Env, project: str) -> None:
+    def running(container: str, template: str, index: int) -> str | None:
+        if "State.Running" in template:
+            return "true"
+        return default_inspect(container, template, index)
+
+    env.docker.inspect_fn = running
+    env.docker.manifest = {**MANIFEST, "project": project}
+    deployment = env.deploy()
+    assert deployment.status == "blocked"
+    assert deployment.detail == f"project {project} does not belong to games"
+    assert env.docker.exec_calls == []
+    assert env.docker.compose_config_calls == 0
+    assert env.docker.up_calls == 0
+
+
+@pytest.mark.parametrize("project", ["games", "ix-games"])
+def test_project_named_after_the_app_is_allowed(env: Env, project: str) -> None:
+    env.docker.manifest = {**MANIFEST, "project": project}
+    assert env.deploy().status == "live"
+
+
+def test_backup_service_missing_from_compose_blocks_before_exec(env: Env) -> None:
+    def running(container: str, template: str, index: int) -> str | None:
+        if "State.Running" in template:
+            return "true"
+        return default_inspect(container, template, index)
+
+    env.docker.inspect_fn = running
+    env.docker.rendered = {"services": {"migrate": {"image": API}, "api": {"image": API}}}
+    deployment = env.deploy()
+    assert deployment.status == "blocked"
+    assert deployment.detail == "service backup is not in compose.yml"
+    assert env.docker.exec_calls == []
+
+
+def test_env_file_of_another_app_blocks(env: Env) -> None:
+    env.docker.compose_text = (
+        "services:\n  api:\n    image: x\n    env_file: ../../financas/.envs/.production/.django\n"
+    )
+    deployment = env.deploy()
+    assert deployment.status == "blocked"
+    assert deployment.detail == (
+        f"service api: env_file ../../financas/.envs/.production/.django is outside {env.app_dir}"
+    )
+    assert env.docker.up_calls == 0
     assert not env.link.is_symlink()

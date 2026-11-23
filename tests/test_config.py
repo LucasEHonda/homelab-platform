@@ -187,3 +187,12 @@ def test_shared_networks_must_be_list_of_strings() -> None:
     data["shared_networks"] = "platform-data"
     with pytest.raises(ConfigError, match="shared_networks"):
         parse_config(data)
+
+
+# FAILS IF: an app may be named after the platform stack, or take the ix- prefix of another app's project
+@pytest.mark.parametrize("name", ["platform", "ix-games", "ix-other"])
+def test_app_name_that_could_own_another_stack_raises(name: str) -> None:
+    data = _valid()
+    data["apps"][name] = data["apps"].pop("games")
+    with pytest.raises(ConfigError, match=rf"apps\.{name}: reserved app name"):
+        parse_config(data)

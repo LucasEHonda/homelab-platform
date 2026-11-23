@@ -21,7 +21,9 @@ This repository provides automatic, push-triggered deploys of self-hosted apps o
 - No long-lived credential outside the NAS can open a shell on it.
 - A leaked Tailscale OAuth client only reaches the deployer endpoint. It still needs a valid OIDC token from an allowed repository and workflow.
 - A leaked GHCR token cannot deploy, because the deployer only runs digests sent by an authenticated workflow.
-- The compose policy rejects bind mounts, devices, configs and secrets outside the app directory, privileged mode, host namespaces, the Docker socket, and builds. This keeps the rest of the NAS, including the photos, out of reach.
+- The compose policy rejects bind mounts, devices, configs, secrets and env files outside the app directory (after following symlinks), privileged mode, the namespaces of the host or of any container outside the app's own compose file, `include` and `extends` from another file, the Docker socket, and builds. This keeps the rest of the NAS, including the photos, out of reach.
+- A bundle can only use its own app's compose project (`<app>` or `ix-<app>`), so the backup step, break-glass and `compose up` never touch another app or the platform stack. App names `platform` and `ix-*` are reserved.
+- Docker and Compose run with only `PATH` and `HOME`, so an app's compose file cannot interpolate the deployer's credentials.
 - The deployer itself holds the Docker socket, so it is the one component that must be protected.
 - ntfy messages carry only the app, the version and the status. When a deploy is blocked, they also list the missing secret names.
 - Apps pin this workflow by SHA, so a change here reaches an app only through a reviewed bump.

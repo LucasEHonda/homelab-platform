@@ -120,3 +120,16 @@ def test_subprocess_runner_captures_and_times_out():
     result = SubprocessRunner().run(["sh", "-c", "echo hi; echo err >&2; exit 3"])
     assert (result.returncode, result.stdout, result.stderr) == (3, "hi\n", "err\n")
     assert SubprocessRunner().run(["sleep", "5"], timeout=0.2).returncode == 124
+
+
+# FAILS IF: docker and compose see the deployer's environment, where compose interpolation
+# (${GAMES_INFISICAL_CLIENT_SECRET} in an app's compose file) would copy it into a container.
+def test_subprocess_runner_keeps_only_path_and_home(monkeypatch):
+    monkeypatch.setenv("GAMES_INFISICAL_CLIENT_SECRET", "s3cret")
+    monkeypatch.setenv("NTFY_URL", "https://ntfy.sh/topic")
+    monkeypatch.setenv("HOME", "/root")
+    result = SubprocessRunner().run(["sh", "-c", "env"])
+    names = {line.split("=", 1)[0] for line in result.stdout.splitlines()}
+    assert "s3cret" not in result.stdout
+    assert "NTFY_URL" not in names
+    assert {"PATH", "HOME"} <= names

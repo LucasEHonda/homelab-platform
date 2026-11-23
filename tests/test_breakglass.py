@@ -243,3 +243,12 @@ def test_shared_unsafe_app_name_never_reaches_sql(tmp_path: Path) -> None:
     with pytest.raises(BreakGlassError):
         s.service.open("x-y", "me@x")
     assert s.docker.calls == []
+
+
+def test_manifest_naming_another_project_never_reaches_docker(tmp_path: Path) -> None:
+    s = Setup(tmp_path)
+    manifest = tmp_path / "games" / "deploy" / "deploy.yml"
+    manifest.write_text(manifest.read_text().replace("project: ix-games", "project: platform"))
+    with pytest.raises(BreakGlassError, match="project platform does not belong to games"):
+        s.service.open("games", "me@x")
+    assert s.docker.calls == []

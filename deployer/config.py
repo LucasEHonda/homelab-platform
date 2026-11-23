@@ -38,6 +38,10 @@ class AppConfig:
     image_prefixes: tuple[str, ...]
     infisical: InfisicalConfig
 
+    def owns_project(self, project: str) -> bool:
+        # TrueNAS names an app's compose project ix-<app>; the bare name is the same app.
+        return project in (self.name, f"ix-{self.name}")
+
 
 @dataclass(frozen=True)
 class PlatformConfig:
@@ -169,6 +173,9 @@ def parse_config(data: object) -> PlatformConfig:
     for name, value in raw_apps.items():
         if not isinstance(name, str) or not _APP_NAME.match(name):
             raise ConfigError(f"apps.{name}: invalid app name")
+        # An app owns the compose projects <name> and ix-<name> (AppConfig.owns_project).
+        if name == "platform" or name.startswith("ix-"):
+            raise ConfigError(f"apps.{name}: reserved app name")
         apps[name] = _parse_app(name, value)
     _check_overlaps(apps)
 

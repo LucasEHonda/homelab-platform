@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import uuid
 from collections.abc import Sequence
@@ -18,6 +19,16 @@ class CommandRunner(Protocol):
     def run(self, args: Sequence[str], *, timeout: float = 600) -> CommandResult: ...
 
 
+# The deployer's environment holds every app's Infisical credentials. Compose interpolates
+# ${VAR} from its own environment, so an app's compose file could copy them into a container:
+# docker gets only what it needs to find itself and its registry login.
+_CHILD_ENV_KEYS = ("PATH", "HOME")
+
+
+def _child_env() -> dict[str, str]:
+    return {key: os.environ[key] for key in _CHILD_ENV_KEYS if key in os.environ}
+
+
 class SubprocessRunner:
     def run(self, args: Sequence[str], *, timeout: float = 600) -> CommandResult:
         try:
@@ -27,6 +38,7 @@ class SubprocessRunner:
                 text=True,
                 timeout=timeout,
                 check=False,
+                env=_child_env(),
             )
         except subprocess.TimeoutExpired:
             return CommandResult(124, "", f"timed out after {timeout}s")
