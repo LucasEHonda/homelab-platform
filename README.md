@@ -106,7 +106,43 @@ Use it when a GitHub, Tailscale or registry credential may have leaked, or when 
 
 Next, revoke the Tailscale trust credential in the admin console and rotate whatever leaked (see Rotating credentials).
 
-When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables the workflows and asks for a new Tailscale credential through `scripts/github-setup.sh`.
+When it is safe, `make unlock NAS_HOST=user@host` brings the NAS back, enables the workflows and asks for a new Tailscale credential through `scripts/github-setup.sh`. It refuses while a panic is on.
+
+## Public sites: kill switch and panic button
+
+An app published to the internet runs a `cloudflared` container that opens an outbound tunnel to Cloudflare; the domains are listed in `PUBLIC_ZONES` (default `meutill.com`). Tailscale access to the apps never goes through Cloudflare, so both commands below leave it working.
+
+**Kill switch**, for "take the site off the internet for now":
+
+```bash
+make public-off      # blocks every PUBLIC_ZONES host at Cloudflare's edge
+make public-on       # opens it again
+make public-status   # BLOCKED at Cloudflare / OPEN to the internet
+```
+
+It toggles one WAF custom rule, `kill-switch <zone>`, created disabled the first time it runs; the zone's other WAF rules are never touched. Blocking at the edge means no deploy can undo it. Stopping `cloudflared` by hand would not last: the next deploy's `compose up` starts it again.
+
+**Panic button**, for "something is wrong and I don't know what yet", for example a leaked Cloudflare login, a compromised app, or an attack in progress:
+
+```bash
+make panic NAS_HOST=user@host
+```
+
+1. Cloudflare blocks every `PUBLIC_ZONES` host (as `public-off`; needs neither SSH nor Docker).
+2. On the NAS, every running `cloudflared` container is stopped with its restart policy set to `no`, so a reboot does not bring it back, and the `PANIC` marker records what was stopped. This is the step that holds even if the Cloudflare account itself is in someone else's hands.
+3. A full `make lockdown`: deployer and its Tailscale nodes off, deploy workflows disabled, Tailscale credential deleted. No deploy can start the tunnels again.
+
+Every step runs even if an earlier one failed, and the command ends with the list of what failed. Re-run it until it says `PANIC ON`; if the NAS cannot be reached, unplug it from the network. The apps keep running on Tailscale and your SSH keeps working, so you can investigate. What it does not stop: an already compromised container sending data out. For that, stop the app's stack on the NAS.
+
+`make unpanic NAS_HOST=user@host` asks you to type `unpanic`, restarts the tunnels with their old restart policy, lifts the lockdown, re-enables deploys and lifts the Cloudflare block last.
+
+One-time setup: in Cloudflare, My Profile → API Tokens → Create Custom Token with `Zone > Zone > Read` and `Zone > Zone WAF > Edit`, limited to the `PUBLIC_ZONES` zones. Keep it only on your machine, in the Keychain (it never goes to Infisical or the NAS), then run `make public-status` once to check it:
+
+```bash
+security add-generic-password -s homelab-cloudflare-killswitch -a "$USER" -w
+```
+
+`CLOUDFLARE_API_TOKEN` in the environment takes precedence over the Keychain. The commands run on the Mac's own `python3`, so they work even when Docker Desktop is closed.
 
 ## Development
 

@@ -1,4 +1,4 @@
-.PHONY: test nas-setup lockdown unlock nas-stats nas-provision nas-dozzle secrets
+.PHONY: test nas-setup lockdown unlock lockdown-github unlock-github panic unpanic public-off public-on public-status nas-stats nas-provision nas-dozzle secrets
 
 test:
 	docker compose -f compose.dev.yml run --rm --build test
@@ -14,6 +14,12 @@ INFISICAL_URL ?=
 REF ?= main
 # Every ssh call of a target reuses one connection, so the SSH password is asked once.
 SSH = ssh -o ControlMaster=auto -o ControlPath=$(HOME)/.ssh/cm-%r@%h:%p -o ControlPersist=10m
+# Domains served to the internet through a Cloudflare Tunnel; public-* and panic act on all of them.
+PUBLIC_ZONES ?= meutill.com
+# Kill-switch API token: CLOUDFLARE_API_TOKEN, or else this macOS Keychain item.
+CF_KEYCHAIN_SERVICE ?= homelab-cloudflare-killswitch
+# Host python3 (stdlib only), so the kill switch works without Docker Desktop.
+KILLSWITCH = CLOUDFLARE_API_TOKEN="$${CLOUDFLARE_API_TOKEN:-$$(security find-generic-password -s $(CF_KEYCHAIN_SERVICE) -w 2>/dev/null)}" python3 -m deployer.tools.cloudflare_killswitch
 
 # Installs or updates the platform on the NAS: secrets, Infisical import, deployer. Safe to re-run.
 nas-setup:
@@ -30,6 +36,10 @@ lockdown:
 	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
 	$(SSH) $(NAS_HOST) "cat > /tmp/nas-lockdown.sh" < scripts/nas-lockdown.sh
 	$(SSH) -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) on; rm -f /tmp/nas-lockdown.sh"
+	$(MAKE) --no-print-directory lockdown-github
+
+# GitHub half of a lockdown: deploy workflows off, Tailscale credential secret deleted.
+lockdown-github:
 	for repo in $(REPOS); do \
 		gh workflow disable deploy.yml --repo "$$repo" || true; \
 		gh secret delete TS_OAUTH_CLIENT_ID --repo "$$repo" || true; \
@@ -40,9 +50,51 @@ lockdown:
 unlock:
 	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
 	$(SSH) $(NAS_HOST) "cat > /tmp/nas-lockdown.sh" < scripts/nas-lockdown.sh
-	$(SSH) -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) off; rm -f /tmp/nas-lockdown.sh"
+	$(SSH) -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) off; rc=\$$?; rm -f /tmp/nas-lockdown.sh; exit \$$rc"
+	$(MAKE) --no-print-directory unlock-github
+
+# GitHub half of an unlock: deploy workflows on, Tailscale credential asked again.
+unlock-github:
 	for repo in $(REPOS); do gh workflow enable deploy.yml --repo "$$repo"; done
 	scripts/github-setup.sh $(REPOS)
+
+# Panic button: cuts every path from the internet into the NAS, keeps the apps on Tailscale.
+# 1. Cloudflare blocks every PUBLIC_ZONES host at the edge (WAF rule; needs no SSH and no Docker).
+# 2. NAS: every cloudflared container stopped and kept stopped, then the lockdown (deployer off).
+# 3. GitHub: deploy workflows off, Tailscale credential deleted.
+# Each step runs even if the one before failed; the summary lists what failed. Lift with `make unpanic`.
+panic:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	@failed=""; \
+	for zone in $(PUBLIC_ZONES); do $(KILLSWITCH) block --zone "$$zone" || failed="$$failed cloudflare:$$zone"; done; \
+	{ $(SSH) $(NAS_HOST) "cat > /tmp/nas-lockdown.sh" < scripts/nas-lockdown.sh && \
+	  $(SSH) -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) panic; rc=\$$?; rm -f /tmp/nas-lockdown.sh; exit \$$rc"; } || failed="$$failed nas"; \
+	$(MAKE) --no-print-directory lockdown-github || failed="$$failed github"; \
+	if [ -n "$$failed" ]; then echo "==> PANIC INCOMPLETE, failed:$$failed (re-run make panic; last resort: unplug the NAS)"; exit 1; fi; \
+	echo "==> PANIC ON: internet blocked at Cloudflare, tunnels stopped, deploy path cut. Apps still on Tailscale."
+
+# Lifts a panic after a typed confirmation: NAS tunnels and deployer back, GitHub deploys back,
+# Cloudflare block lifted last.
+unpanic:
+	$(if $(NAS_HOST),,$(error set NAS_HOST=user@host))
+	@printf 'Open %s to the internet again? Type "unpanic": ' "$(PUBLIC_ZONES)"; read answer; [ "$$answer" = unpanic ] || { echo "aborted"; exit 1; }
+	$(SSH) $(NAS_HOST) "cat > /tmp/nas-lockdown.sh" < scripts/nas-lockdown.sh
+	$(SSH) -t $(NAS_HOST) "sudo sh /tmp/nas-lockdown.sh $(PLATFORM_DIR) unpanic; rc=\$$?; rm -f /tmp/nas-lockdown.sh; exit \$$rc"
+	$(MAKE) --no-print-directory unlock-github
+	@for zone in $(PUBLIC_ZONES); do $(KILLSWITCH) unblock --zone "$$zone" || exit 1; done
+
+# Kill switch for the public sites only: blocks or reopens every PUBLIC_ZONES host at Cloudflare's
+# edge. Deploys cannot undo it and the Tailscale path is unaffected. The token needs
+# `Zone > Zone > Read` and `Zone > Zone WAF > Edit` on those zones only; keep it in the Keychain:
+#   security add-generic-password -s homelab-cloudflare-killswitch -a "$USER" -w
+public-off:
+	@for zone in $(PUBLIC_ZONES); do $(KILLSWITCH) block --zone "$$zone" || exit 1; done
+
+public-on:
+	@for zone in $(PUBLIC_ZONES); do $(KILLSWITCH) unblock --zone "$$zone" || exit 1; done
+
+public-status:
+	@for zone in $(PUBLIC_ZONES); do $(KILLSWITCH) status --zone "$$zone" || exit 1; done
 
 # Read-only snapshot of memory and CPU per container, plus Redis and database memory. Changes nothing.
 nas-stats:
