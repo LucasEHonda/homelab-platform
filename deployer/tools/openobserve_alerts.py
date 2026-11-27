@@ -216,6 +216,10 @@ class OpenObserveAdmin:
             raise AlertsError(f"{method} {path}: HTTP {response.status_code} {message}")
         return response
 
+    def request_json(self, method: str, path: str, json: object = None) -> dict:
+        response = self._request(method, path, json)
+        return response.json() if response.content else {}
+
     def wait_ready(self, timeout_seconds: float = 300) -> None:
         attempts = int(timeout_seconds / 5)
         for attempt in range(1, attempts + 1):
