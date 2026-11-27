@@ -317,6 +317,15 @@ fi
 
 site_url=$(env_value SITE_URL "$envs/.infisical")
 tailnet=${site_url#https://secrets.}
+# OpenObserve pipelines from deploy/openobserve/pipelines.yml, before the alerts that read their streams.
+log "applying OpenObserve pipelines"
+docker run --rm --network platform_platform \
+  -v "$P/deploy/openobserve:/config:ro" -v "$P/.envs:/envs:ro" \
+  --entrypoint python "ghcr.io/lucasehonda/homelab-deployer:$DEPLOYER_VERSION" \
+  -m deployer.tools.openobserve_pipelines --url http://openobserve:5080 \
+  --pipelines-file /config/pipelines.yml --openobserve-env /envs/.openobserve \
+  || { warn "OpenObserve pipelines failed; fix the error above and run again"; exit 1; }
+
 # OpenObserve alerts from deploy/openobserve/alerts.yml; ntfy goes to the deployer's NTFY_URL.
 log "applying OpenObserve alerts"
 docker run --rm --network platform_platform \

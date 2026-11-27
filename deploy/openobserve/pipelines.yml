@@ -1,0 +1,16 @@
+# OpenObserve realtime pipelines, applied by scripts/nas-setup.sh (deployer/tools/openobserve_pipelines.py).
+# Each one moves the spans of a traces stream whose `column` contains `contains` to the
+# `destination` traces stream as they arrive; every other span, including the ones without that
+# column, stays in `source`. Names must be lowercase words joined by '-'.
+pipelines:
+  # Every app's container healthcheck runs `SELECT 1` every 30 s, and those database spans flooded
+  # the default stream. They go to "health" instead, where the service-silent alert still reads
+  # them as the heartbeat of an idle API. Their file path ends in the app's health view,
+  # "/health.py": plain "health" would also move real queries such as financas'
+  # core/health/queries.py (financial health score).
+  - name: health-checks-to-own-stream
+    description: Database spans of the container health checks go to the health stream.
+    source: default
+    column: code_file_path
+    contains: /health.py
+    destination: health

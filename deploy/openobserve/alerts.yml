@@ -82,14 +82,19 @@ alerts:
     row_template: "{service_name} {route}: {repeats}x at {caller} | {query_norm} | $OBSERVE_URL/web/traces/trace-details?stream=default&org_identifier=default&trace_id={trace_id}&from={from_us}&to={to_us}"
 
   # The health check's database queries are the heartbeat: they reach OpenObserve every 30 s
-  # even with no user traffic, so silence means the API or its tracing is down. Only *-api
+  # even with no user traffic, so silence means the API or its tracing is down. The pipeline in
+  # pipelines.yml moves them to the "health" stream, so both streams are read. Only *-api
   # services count: Celery workers (*-worker) are idle for hours by design.
   - name: service-silent
     description: An app API that sent spans in the last hour sent none in the last 15 minutes.
     sql: >-
       SELECT service_name,
       CAST((CAST(to_unixtime(now()) AS BIGINT) * 1000000 - max(_timestamp)) / 60000000 AS BIGINT) AS minutes
-      FROM "default"
+      FROM (
+        SELECT service_name, _timestamp FROM "default"
+        UNION ALL
+        SELECT service_name, _timestamp FROM "health"
+      ) spans
       WHERE service_name LIKE '%-api'
       GROUP BY service_name
       HAVING max(_timestamp) < (CAST(to_unixtime(now()) AS BIGINT) - 900) * 1000000
